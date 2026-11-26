@@ -18,6 +18,7 @@ import type {
   GameState,
   PlayerState,
   ReactionKind,
+  RelicId,
   RngFn,
   SeekerId,
 } from '../types/game';
@@ -50,6 +51,7 @@ export function createInitialGameState(
   bossId: BossId = 'vainglory_core',
   p1Seeker: SeekerId = 'khor',
   p2Seeker: SeekerId = 'asha',
+  relicId: RelicId = 'prism_lens',
 ): GameState {
   return {
     boss: createInitialBossState(bossId),
@@ -58,8 +60,9 @@ export function createInitialGameState(
     phase: 'coop_turn',
     teamHp: 10,
     maxTeamHp: 10,
-    teamProtection: 0,
+    teamProtection: relicId === 'aegis_core' ? 3 : 0,
     synergyGauge: 0,
+    relicId,
     lastReaction: null,
     players: [createPlayer(0, p1Seeker), createPlayer(1, p2Seeker)],
     activeChain: {
@@ -271,6 +274,7 @@ function checkAndApplyPhase2(prevState: GameState): GameState {
       ...nextBoss,
       wellTriggered: true,
       challenges: createWellChallenges(),
+      lastBark: '태엽의 폭주가 시작된다… 심연으로 떨어져라!',
       shields: {
         ...boss.shields,
         red: nextRed,
@@ -282,10 +286,11 @@ function checkAndApplyPhase2(prevState: GameState): GameState {
         blue: Math.max(boss.maxShields.blue, nextBlue),
       },
     };
-  } else {
+  } else if (boss.id === 'kalos_prime') {
     nextBoss = {
       ...nextBoss,
       invulnerable: true,
+      lastBark: '공허의 진리가 강림한다! 무적의 결계여!',
       challenges: [
         ...boss.challenges,
         {
@@ -294,6 +299,34 @@ function checkAndApplyPhase2(prevState: GameState): GameState {
           requiredColor: 'blue',
           penaltyDamage: 2,
           description: '파랑 카드 또는 방해 제거로 해제',
+        },
+      ],
+    };
+  } else {
+    const nextRed = boss.shields.red + 2;
+    const nextGreen = boss.shields.green + 2;
+    const nextBlue = boss.shields.blue + 2;
+    nextBoss = {
+      ...nextBoss,
+      lastBark: '영겁의 흐름이 너희를 삼킬 것이다!',
+      shields: {
+        red: nextRed,
+        green: nextGreen,
+        blue: nextBlue,
+      },
+      maxShields: {
+        red: Math.max(boss.maxShields.red, nextRed),
+        green: Math.max(boss.maxShields.green, nextGreen),
+        blue: Math.max(boss.maxShields.blue, nextBlue),
+      },
+      challenges: [
+        ...boss.challenges,
+        {
+          id: 'CH_CHRONO_P2',
+          name: '시간 왜곡의 틈새',
+          requiredColor: 'green',
+          penaltyDamage: 2,
+          description: '초록 카드로 제거 필요 (미제거 시 반격 페이즈 팀 체력 -2)',
         },
       ],
     };
@@ -306,7 +339,12 @@ function checkAndApplyPhase2(prevState: GameState): GameState {
 
   state = pushEvent(state, {
     kind: 'phase_two',
-    color: boss.id === 'kalos_prime' ? 'void' : 'red',
+    color:
+      boss.id === 'kalos_prime'
+        ? 'void'
+        : boss.id === 'chronos_wyrm'
+          ? 'lantern'
+          : 'red',
     label: `PHASE 2 각성! [${tpl.phase2Title}]`,
   });
 
@@ -329,6 +367,8 @@ export function estimateBossCounter(
   const remainingShieldSum =
     boss.shields.red + boss.shields.green + boss.shields.blue;
   const overheatBonus = boss.isOverheated ? 2 : 0;
+  const stanceBonus =
+    boss.id === 'chronos_wyrm' && boss.temporalStance === 'accelerate' ? 1 : 0;
   const challengePenalty = boss.challenges.reduce(
     (sum, ch) => sum + ch.penaltyDamage,
     0,
@@ -338,6 +378,7 @@ export function estimateBossCounter(
     boss.baseCounterAttack +
       remainingShieldSum +
       overheatBonus +
+      stanceBonus +
       challengePenalty +
       boss.intent.bonusDamage -
       boss.counterWeakened,
@@ -386,6 +427,7 @@ export function triggerSynergyUltimate(
       ...prevState.boss,
       hp: newBossHp,
       invulnerable: false,
+      lastBark: '성좌의 빛이… 결계를 꿰뚫는다!',
     },
     logs: [
       {
@@ -478,8 +520,13 @@ export function applyAiCardAction(
   action: AiCardAction,
   rng: RngFn = Math.random,
 ): { state: GameState; error?: string } {
-  const safeDamage = Math.max(1, Math.min(15, Math.round(action.damage)));
-  const safeGuard = Math.max(0, Math.min(5, Math.round(action.guard)));
+  const hasVisionAmp = prevState.relicId === 'vision_amplifier';
+  const safeDamage =
+    Math.max(1, Math.min(15, Math.round(action.damage))) +
+    (hasVisionAmp ? 2 : 0);
+  const safeGuard =
+    Math.max(0, Math.min(5, Math.round(action.guard))) +
+    (hasVisionAmp ? 1 : 0);
   const virtualCard: CardDef = {
     id: `AI_VISION_${action.color.toUpperCase()}`,
     seeker: 'shared',
@@ -657,9 +704,26 @@ function resolveCardExecution(
     state.boss.primedElement,
     resolvedColor,
   );
-  const rawAttack = reaction
-    ? Math.ceil((baseRawAttack + reaction.bonusAttack) * reaction.attackMultiplier)
-    : baseRawAttack;
+  const isFirstBoostOfRound =
+    isBoost && !state.logs.some((l) => l.round === state.round && l.isBoost);
+  const chronoDialTriggered =
+    isFirstBoostOfRound && state.relicId === 'chrono_dial';
+  const prismReactionBonus =
+    reaction && state.relicId === 'prism_lens' ? 2 : 0;
+  const chronosStanceFlip =
+    reaction?.kind === 'chrono' &&
+    state.boss.id === 'chronos_wyrm' &&
+    state.boss.temporalStance === 'accelerate';
+
+  const rawAttack =
+    (reaction
+      ? Math.ceil(
+          (baseRawAttack + reaction.bonusAttack) * reaction.attackMultiplier,
+        )
+      : baseRawAttack) +
+    prismReactionBonus +
+    (chronoDialTriggered ? 2 : 0) +
+    (chronosStanceFlip ? 4 : 0);
 
   // Decrement estimated hand count for scanned player
   const actingPlayer = state.players[ownerSlot];
@@ -808,22 +872,56 @@ function resolveCardExecution(
         boostCards: [],
       };
 
+  const nextTemporalStance = chronosStanceFlip
+    ? ('rewind' as const)
+    : state.boss.temporalStance;
+
+  const isRewindBonusActive =
+    state.boss.id === 'chronos_wyrm' &&
+    nextTemporalStance === 'rewind' &&
+    !chronosStanceFlip &&
+    (isBoost || shieldBrokenNow);
+
+  const aegisBreakBonus =
+    shieldBrokenNow && state.relicId === 'aegis_core' ? 1 : 0;
+
   const synergyGain =
     (isBoost ? 20 : 15) +
     (reaction ? 25 : 0) +
-    (shieldBrokenNow ? 15 : 0);
+    (shieldBrokenNow ? 15 : 0) +
+    (reaction && state.relicId === 'prism_lens' ? 5 : 0) +
+    (chronoDialTriggered ? 10 : 0) +
+    (isRewindBonusActive ? 15 : 0);
   const nextSynergyGauge = Math.min(100, state.synergyGauge + synergyGain);
   const nextCounterWeakened =
     state.boss.counterWeakened + (reaction?.counterWeakened ?? 0);
   const nextTeamProtection =
-    state.teamProtection + card.protection + (reaction?.bonusProtection ?? 0);
+    state.teamProtection +
+    card.protection +
+    (reaction?.bonusProtection ?? 0) +
+    aegisBreakBonus;
+
+  const reactionBark = chronosStanceFlip
+    ? '시간의 궤도가 역전되었다!'
+    : reaction?.kind === 'melt'
+      ? '이 열기… 장갑이 녹아내리고 있어!'
+      : reaction?.kind === 'chrono'
+        ? '시간의 틈새에 공격이 둔화된다…!'
+        : reaction?.kind === 'shatter'
+          ? '크악! 치명적인 파쇄의 일격!'
+          : state.boss.lastBark;
 
   const totalEffectiveDamage = shieldDamage + hpDamage;
   const logNoteParts: string[] = [];
   if (isBoost) logNoteParts.push(`부스트 +${card.boostValue}`);
   if (dice && dice.totalBonus > 0) logNoteParts.push(`주사위 +${dice.totalBonus}`);
   if (reaction) logNoteParts.push(`원소 공명[${reaction.title}]: ${reaction.detail}`);
+  if (prismReactionBonus > 0) logNoteParts.push('프리즘 렌즈(+2 위력·+5 게이지)');
+  if (chronoDialTriggered) logNoteParts.push('시간의 나침반(+2 위력·+10 게이지)');
+  if (chronosStanceFlip) logNoteParts.push('크로노스 가속 차단(+4 피해·역행 전환!)');
+  if (isRewindBonusActive) logNoteParts.push('역행 공명(+15 게이지)');
   if (card.protection > 0) logNoteParts.push(`보호 +${card.protection}`);
+  if (aegisBreakBonus > 0) logNoteParts.push('아이기스 심장(방어 +1)');
   if (shieldBrokenNow) logNoteParts.push(`${COLOR_LABEL[resolvedColor]} 보호막 파쇄!`);
   if (blockedByInvuln) logNoteParts.push('본체 무적에 막힘 (랜턴 필요)');
   for (const ch of clearedChallenges) {
@@ -860,6 +958,8 @@ function resolveCardExecution(
       challenges,
       primedElement: nextPrimed,
       counterWeakened: nextCounterWeakened,
+      temporalStance: nextTemporalStance,
+      lastBark: reactionBark,
     },
     logs: [
       {
@@ -979,6 +1079,20 @@ export function resolveBossCounterPhase(prevState: GameState): GameState {
     ];
   }
 
+  const rewindHealed =
+    state.boss.id === 'chronos_wyrm' &&
+    state.boss.temporalStance === 'rewind' &&
+    remainingShieldSum > 0
+      ? Math.min(2, state.boss.maxHp - state.boss.hp)
+      : 0;
+  const nextBossHp = state.boss.hp + rewindHealed;
+  const counterBark =
+    rewindHealed > 0
+      ? '시간이 거꾸로 흐른다… 나의 상처도 아물지!'
+      : netDamage > 0
+        ? '이것이 심연의 반격이다!'
+        : '방어막이 꽤 단단하군… 다음엔 뚫어주마.';
+
   state = {
     ...state,
     phase: nextTeamHp <= 0 ? 'defeat' : 'boss_counter',
@@ -986,8 +1100,10 @@ export function resolveBossCounterPhase(prevState: GameState): GameState {
     teamProtection: 0,
     boss: {
       ...state.boss,
+      hp: nextBossHp,
       nextShieldBonus,
       challenges: nextChallenges,
+      lastBark: counterBark,
     },
     logs: [
       {
@@ -1001,12 +1117,16 @@ export function resolveBossCounterPhase(prevState: GameState): GameState {
         damageDealt: netDamage,
         shieldBroken: false,
         note: `총공격 ${rawBossAttack} (잔여보호막 ${remainingShieldSum} + 기본 ${state.boss.baseCounterAttack}${
+          state.boss.id === 'chronos_wyrm' && state.boss.temporalStance === 'accelerate'
+            ? ' + 가속 1'
+            : ''
+        }${
           intent.bonusDamage > 0 ? ` + ${intent.title} ${intent.bonusDamage}` : ''
         }${overheatBonus > 0 ? ` + 과열 ${overheatBonus}` : ''}${
           challengePenalty > 0 ? ` + 챌린지 ${challengePenalty}` : ''
         }${weakened > 0 ? ` - 균열 ${weakened}` : ''}) · 보호 ${absorbed} 차감${
           intent.pierceGuard > 0 ? ` (관통 ${intent.pierceGuard})` : ''
-        } → 팀 -${netDamage} HP`,
+        }${rewindHealed > 0 ? ` · 역행 재생 +${rewindHealed} HP` : ''} → 팀 -${netDamage} HP`,
       },
       ...state.logs,
     ].slice(0, 30),
@@ -1016,12 +1136,17 @@ export function resolveBossCounterPhase(prevState: GameState): GameState {
 
   state = pushEvent(state, {
     kind: 'boss_counter',
-    color: state.boss.id === 'kalos_prime' ? 'void' : 'red',
+    color:
+      state.boss.id === 'kalos_prime'
+        ? 'void'
+        : state.boss.id === 'chronos_wyrm'
+          ? 'lantern'
+          : 'red',
     amount: netDamage,
     label:
       netDamage > 0
-        ? `[${intent.title}] 팀 체력 -${netDamage} (보호 ${absorbed} 흡수)`
-        : `완벽 방어! [${intent.title}] ${rawBossAttack} 전량 흡수`,
+        ? `[${intent.title}] 팀 체력 -${netDamage} (보호 ${absorbed} 흡수)${rewindHealed > 0 ? ` · 보스 +${rewindHealed} HP` : ''}`
+        : `완벽 방어! [${intent.title}] ${rawBossAttack} 전량 흡수${rewindHealed > 0 ? ` · 보스 +${rewindHealed} HP` : ''}`,
   });
 
   return state;
@@ -1144,6 +1269,19 @@ export function startNextRound(prevState: GameState): GameState {
     nextRound,
     prevState.boss.phase,
   );
+  const nextTemporalStance =
+    prevState.boss.id === 'chronos_wyrm'
+      ? prevState.boss.temporalStance === 'accelerate'
+        ? 'rewind'
+        : 'accelerate'
+      : null;
+
+  const nextIntentText =
+    prevState.boss.id === 'kalos_prime'
+      ? `무적 결계 재전개 · [${nextIntent.title}] ${nextIntent.description}`
+      : prevState.boss.id === 'chronos_wyrm'
+        ? `${nextTemporalStance === 'accelerate' ? '가속 태세 (+1 반격)' : '역행 태세 (보호막 잔존 시 +2 회복)'} · [${nextIntent.title}] ${nextIntent.description}`
+        : `[${nextIntent.title}] ${nextIntent.description} (R${nextShields.red}/G${nextShields.green}/B${nextShields.blue})`;
 
   let state: GameState = {
     ...prevState,
@@ -1172,17 +1310,20 @@ export function startNextRound(prevState: GameState): GameState {
       primedElement: null,
       counterWeakened: 0,
       intent: nextIntent,
-      nextIntentText:
-        prevState.boss.id === 'kalos_prime'
-          ? `무적 결계 재전개 · [${nextIntent.title}] ${nextIntent.description}`
-          : `[${nextIntent.title}] ${nextIntent.description} (R${nextShields.red}/G${nextShields.green}/B${nextShields.blue})`,
+      temporalStance: nextTemporalStance,
+      nextIntentText,
     },
   };
 
   state = pushEvent(state, {
     kind: 'boss_enrage',
-    color: prevState.boss.id === 'kalos_prime' ? 'void' : 'red',
-    label: `${nextRound}라운드 시작 · [${nextIntent.title}] 전개!`,
+    color:
+      prevState.boss.id === 'kalos_prime'
+        ? 'void'
+        : prevState.boss.id === 'chronos_wyrm'
+          ? 'lantern'
+          : 'red',
+    label: `${nextRound}라운드 시작 · [${nextIntent.title}]${nextTemporalStance ? ` (${nextTemporalStance === 'accelerate' ? '가속' : '역행'})` : ''} 전개!`,
   });
 
   return state;

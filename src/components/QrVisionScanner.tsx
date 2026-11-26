@@ -1,12 +1,22 @@
 import { useCallback, useEffect, useRef, useState, type ChangeEvent } from 'react';
 import jsQR from 'jsqr';
-import { Bot, Camera, CameraOff, ImagePlus, RefreshCw, Sparkles } from 'lucide-react';
+import {
+  Bot,
+  Camera,
+  CameraOff,
+  ImagePlus,
+  RefreshCw,
+  ScanEye,
+  Sparkles,
+} from 'lucide-react';
 import { sfx } from '../audio/sfx';
 
 interface QrVisionScannerProps {
   onScan: (qrCode: string) => void;
   onCaptureForAi: (imageDataUrl: string) => void;
   onOpenTestDeck: () => void;
+  onRequireAiConfig?: () => void;
+  aiConfigured?: boolean;
   aiBusy?: boolean;
   disabled?: boolean;
   lastScanStatus?: {
@@ -29,6 +39,8 @@ export function QrVisionScanner({
   onScan,
   onCaptureForAi,
   onOpenTestDeck,
+  onRequireAiConfig,
+  aiConfigured = false,
   aiBusy = false,
   disabled = false,
   lastScanStatus,
@@ -49,8 +61,16 @@ export function QrVisionScanner({
   const [motionEnergy, setMotionEnergy] = useState(0);
   const [scanPulse, setScanPulse] = useState(false);
   const [lastDecodeMs, setLastDecodeMs] = useState<number | null>(null);
+  const [autoVision, setAutoVision] = useState(false);
+  const [autoPhase, setAutoPhase] = useState<
+    'idle' | 'detecting' | 'stabilizing' | 'cooldown'
+  >('idle');
 
   const lastScannedRef = useRef<{ code: string; at: number }>({ code: '', at: 0 });
+  const motionArmedRef = useRef(false);
+  const stableTimerRef = useRef<number | null>(null);
+  const cooldownTimerRef = useRef<number | null>(null);
+  const lastAutoCaptureRef = useRef(0);
 
   const handleDetectedCode = useCallback(
     (rawValue: string, elapsedMs: number) => {
@@ -75,6 +95,27 @@ export function QrVisionScanner({
     },
     [disabled],
   );
+
+  const captureFrameForAi = useCallback(() => {
+    const video = videoRef.current;
+    if (!video || video.readyState < 2 || video.videoWidth === 0) return;
+    const canvas = document.createElement('canvas');
+    const maxW = 768;
+    const scale = Math.min(1, maxW / video.videoWidth);
+    canvas.width = Math.round(video.videoWidth * scale);
+    canvas.height = Math.round(video.videoHeight * scale);
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.86);
+    setScanPulse(true);
+    sfx.playScanBeep();
+    onCaptureForAi(dataUrl);
+    window.setTimeout(() => setScanPulse(false), 450);
+  }, [onCaptureForAi]);
+
+  const captureFrameRef = useRef(captureFrameForAi);
+  captureFrameRef.current = captureFrameForAi;
 
   useEffect(() => {
     if (!cameraActive) {
@@ -257,24 +298,81 @@ export function QrVisionScanner({
     };
   }, [cameraActive, cameraRetryTick, facingMode, handleDetectedCode]);
 
+  // Hands-free Vision Auto-Trigger: arm on motion > 0.14, capture after < 0.05 for 900ms (4.5s cooldown)
+  useEffect(() => {
+    const clearStableTimer = () => {
+      if (stableTimerRef.current !== null) {
+        window.clearTimeout(stableTimerRef.current);
+        stableTimerRef.current = null;
+      }
+    };
+
+    if (!autoVision || !cameraActive || cameraError || !aiConfigured || aiBusy || disabled) {
+      clearStableTimer();
+      motionArmedRef.current = false;
+      setAutoPhase('idle');
+      return;
+    }
+
+    const elapsedSinceLast = performance.now() - lastAutoCaptureRef.current;
+    if (lastAutoCaptureRef.current > 0 && elapsedSinceLast < 4500) {
+      clearStableTimer();
+      motionArmedRef.current = false;
+      setAutoPhase('cooldown');
+      return;
+    }
+
+    if (motionEnergy > 0.14) {
+      motionArmedRef.current = true;
+      clearStableTimer();
+      setAutoPhase('detecting');
+      return;
+    }
+
+    if (motionArmedRef.current && motionEnergy < 0.05) {
+      if (stableTimerRef.current === null) {
+        setAutoPhase('stabilizing');
+        stableTimerRef.current = window.setTimeout(() => {
+          stableTimerRef.current = null;
+          motionArmedRef.current = false;
+          const now = performance.now();
+          if (now - lastAutoCaptureRef.current < 4500) {
+            setAutoPhase('cooldown');
+            return;
+          }
+          lastAutoCaptureRef.current = now;
+          setAutoPhase('cooldown');
+          captureFrameRef.current();
+          if (cooldownTimerRef.current !== null) {
+            window.clearTimeout(cooldownTimerRef.current);
+          }
+          cooldownTimerRef.current = window.setTimeout(() => {
+            cooldownTimerRef.current = null;
+            setAutoPhase('idle');
+          }, 4500);
+        }, 900);
+      }
+    } else if (motionEnergy >= 0.05) {
+      clearStableTimer();
+      setAutoPhase(motionArmedRef.current ? 'detecting' : 'idle');
+    }
+  }, [autoVision, cameraActive, cameraError, aiConfigured, aiBusy, disabled, motionEnergy]);
+
+  useEffect(() => {
+    return () => {
+      if (stableTimerRef.current !== null) window.clearTimeout(stableTimerRef.current);
+      if (cooldownTimerRef.current !== null) window.clearTimeout(cooldownTimerRef.current);
+    };
+  }, []);
+
   const motionRingScale = 1 + motionEnergy * 0.14;
 
-  const captureFrameForAi = () => {
-    const video = videoRef.current;
-    if (!video || video.readyState < 2 || video.videoWidth === 0) return;
-    const canvas = document.createElement('canvas');
-    const maxW = 768;
-    const scale = Math.min(1, maxW / video.videoWidth);
-    canvas.width = Math.round(video.videoWidth * scale);
-    canvas.height = Math.round(video.videoHeight * scale);
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-    const dataUrl = canvas.toDataURL('image/jpeg', 0.86);
-    setScanPulse(true);
-    sfx.playScanBeep();
-    onCaptureForAi(dataUrl);
-    window.setTimeout(() => setScanPulse(false), 450);
+  const handleToggleAutoVision = () => {
+    if (!autoVision && !aiConfigured) {
+      onRequireAiConfig?.();
+      return;
+    }
+    setAutoVision((v) => !v);
   };
 
   const handleFileUpload = (e: ChangeEvent<HTMLInputElement>) => {
@@ -291,6 +389,15 @@ export function QrVisionScanner({
     reader.readAsDataURL(file);
   };
 
+  const autoStatusText =
+    autoPhase === 'stabilizing'
+      ? '초점 고정 중...'
+      : autoPhase === 'detecting'
+        ? '카드 감지됨'
+        : autoPhase === 'cooldown'
+          ? '재인식 대기'
+          : '자동 대기';
+
   return (
     <div className={`qr-scanner-panel ${scanPulse ? 'scan-pulse' : ''}`}>
       <div className="qr-viewfinder-box">
@@ -303,21 +410,26 @@ export function QrVisionScanner({
               muted
             />
             <div
-              className="vision-reticle"
+              className={`vision-reticle ${autoVision ? 'reticle-auto' : ''}`}
               style={{
                 transform: `translate(-50%, -50%) scale(${motionRingScale.toFixed(3)})`,
                 borderColor:
                   scanPulse
                     ? '#fbbf24'
-                    : motionEnergy > 0.22
-                      ? '#38bdf8'
-                      : 'rgba(255,255,255,0.42)',
+                    : autoPhase === 'stabilizing'
+                      ? '#36d399'
+                      : autoVision || motionEnergy > 0.22
+                        ? '#38bdf8'
+                        : 'rgba(255,255,255,0.42)',
               }}
             >
               <span className="reticle-corner tl" />
               <span className="reticle-corner tr" />
               <span className="reticle-corner bl" />
               <span className="reticle-corner br" />
+              {autoVision && (
+                <span className="reticle-auto-pill">{autoStatusText}</span>
+              )}
             </div>
           </>
         ) : (
@@ -381,6 +493,15 @@ export function QrVisionScanner({
           </button>
           <button
             type="button"
+            className={`mini-btn ${autoVision ? 'mini-btn-auto-on' : ''}`}
+            onClick={handleToggleAutoVision}
+            title="카드가 프레임에 고정되면 자동으로 AI 인식 실행"
+          >
+            <ScanEye size={12} />
+            자동 인식
+          </button>
+          <button
+            type="button"
             className="mini-btn"
             disabled={disabled || aiBusy}
             onClick={() => fileInputRef.current?.click()}
@@ -418,7 +539,10 @@ export function QrVisionScanner({
         {/* Compact floating status bottom */}
         <div className="scanner-overlay-status">
           <span className={lastScanStatus?.isError ? 'status-err' : 'status-ok'}>
-            {lastScanStatus?.text ?? '카드를 카메라에 비추고 [AI 카드 인식] 또는 QR 스캔'}
+            {lastScanStatus?.text ??
+              (autoVision
+                ? `핸즈프리 자동 인식 활성 (${autoStatusText})`
+                : '카드를 카메라에 비추고 [AI 카드 인식] 또는 QR 스캔')}
           </span>
           {lastDecodeMs !== null && <span className="decode-ms">{lastDecodeMs}ms</span>}
         </div>

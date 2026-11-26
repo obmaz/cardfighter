@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import {
   Bot,
   Flame,
+  Gem,
   Heart,
   HelpCircle,
   RotateCcw,
@@ -14,6 +15,7 @@ import {
 } from 'lucide-react';
 import { BOSS_TEMPLATES } from './data/bosses';
 import { SEEKER_ROSTER } from './data/cards';
+import { RELIC_CATALOG, RELIC_LIST } from './data/relics';
 import {
   applyAiCardAction,
   clearPendingColorChoice,
@@ -39,7 +41,14 @@ import { QrVisionScanner } from './components/QrVisionScanner';
 import { QrTestDrawer } from './components/QrTestDrawer';
 import { AiSettingsModal } from './components/AiSettingsModal';
 import { sfx } from './audio/sfx';
-import type { BaseColor, BossId, GameState, RoundPhase, SeekerId } from './types/game';
+import type {
+  BaseColor,
+  BossId,
+  GameState,
+  RelicId,
+  RoundPhase,
+  SeekerId,
+} from './types/game';
 
 const PHASE_LABEL: Record<RoundPhase, string> = {
   boss_stance: '보스 태세',
@@ -61,9 +70,10 @@ export function App() {
   const [bossId, setBossId] = useState<BossId>('vainglory_core');
   const [p1Seeker, setP1Seeker] = useState<SeekerId>('khor');
   const [p2Seeker, setP2Seeker] = useState<SeekerId>('asha');
+  const [relicId, setRelicId] = useState<RelicId>('prism_lens');
 
   const [game, setGame] = useState<GameState>(() =>
-    createInitialGameState('vainglory_core', 'khor', 'asha'),
+    createInitialGameState('vainglory_core', 'khor', 'asha', 'prism_lens'),
   );
   const [muted, setMuted] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -134,11 +144,13 @@ export function App() {
     nextBoss: BossId = bossId,
     nextP1: SeekerId = p1Seeker,
     nextP2: SeekerId = p2Seeker,
+    nextRelic: RelicId = relicId,
   ) => {
     setBossId(nextBoss);
     setP1Seeker(nextP1);
     setP2Seeker(nextP2);
-    setGame(createInitialGameState(nextBoss, nextP1, nextP2));
+    setRelicId(nextRelic);
+    setGame(createInitialGameState(nextBoss, nextP1, nextP2, nextRelic));
     setScanStatus({ text: '레이드 시작! 카드를 스캔하세요.' });
     setSetupOpen(false);
   };
@@ -186,6 +198,7 @@ export function App() {
   };
 
   const bossTpl = BOSS_TEMPLATES[game.boss.id];
+  const activeRelic = RELIC_CATALOG[game.relicId];
   const bossHpPct = Math.max(0, Math.round((game.boss.hp / game.boss.maxHp) * 100));
   const teamHpPct = Math.max(0, Math.round((game.teamHp / game.maxTeamHp) * 100));
   const counterEst = estimateBossCounter(game.boss, game.teamProtection);
@@ -259,7 +272,7 @@ export function App() {
             onClick={() => setSetupOpen(true)}
           >
             <RotateCcw size={14} />
-            덱/보스
+            덱/유물
           </button>
           <button
             type="button"
@@ -280,11 +293,20 @@ export function App() {
             boss={game.boss}
             effectQueue={game.effectQueue}
             lastDiceRoll={game.lastDiceRoll}
+            latestLog={game.logs[0] ?? null}
           />
           <QrVisionScanner
             onScan={(code) => handleScanCode(code)}
             onCaptureForAi={(img) => void handleCaptureForAi(img)}
             onOpenTestDeck={() => setDrawerOpen(true)}
+            onRequireAiConfig={() => {
+              setScanStatus({
+                text: '자동 인식을 사용하려면 먼저 AI 에이전트를 설정하세요.',
+                isError: true,
+              });
+              setAiSettingsOpen(true);
+            }}
+            aiConfigured={isAiConfigured(aiConfig)}
             aiBusy={aiBusy}
             disabled={game.phase !== 'coop_turn'}
             lastScanStatus={scanStatus}
@@ -293,6 +315,11 @@ export function App() {
 
         {/* SLIM TACTICAL HUD RAIL */}
         <aside className="hud-rail">
+          <div className="relic-badge-pill" title={activeRelic.description}>
+            <Gem size={13} className="accent-amber" />
+            <span className="relic-badge-name">유물 · {activeRelic.name}</span>
+            <small className="relic-badge-sub">{activeRelic.subtitle}</small>
+          </div>
           {game.lastReaction && (
             <section
               key={game.lastReaction.id}
@@ -685,6 +712,26 @@ export function App() {
               </div>
             </div>
 
+            <div className="setup-group">
+              <label>전술 유물 선택 (1개 장착)</label>
+              <div className="relic-picker-grid">
+                {RELIC_LIST.map((relic) => (
+                  <button
+                    key={relic.id}
+                    type="button"
+                    className={`relic-opt ${relicId === relic.id ? 'selected' : ''}`}
+                    onClick={() => setRelicId(relic.id)}
+                  >
+                    <div className="relic-opt-head">
+                      <strong>{relic.name}</strong>
+                      <span>{relic.subtitle}</span>
+                    </div>
+                    <small>{relic.description}</small>
+                  </button>
+                ))}
+              </div>
+            </div>
+
             <div className="setup-footer">
               <button
                 type="button"
@@ -696,7 +743,7 @@ export function App() {
               <button
                 type="button"
                 className="btn-phase-next"
-                onClick={() => handleRestart(bossId, p1Seeker, p2Seeker)}
+                onClick={() => handleRestart(bossId, p1Seeker, p2Seeker, relicId)}
               >
                 레이드 시작
               </button>

@@ -159,13 +159,14 @@ describe('Kinfire Delve QR Boss Raid Combat Engine', () => {
     expect(state.boss.primedElement).toBe('red');
     expect(state.lastReaction).toBeNull();
 
-    // KD_KHOR_B01: blue power 3 -> Melt adds +3 (total 6 vs blue shield 3 -> breaks + 3 overflow)
+    // KD_KHOR_B01: blue power 3 -> Melt adds +3 (+2 from default prism_lens = total 8 vs blue shield 3 -> breaks + 5 overflow)
     // and shreds all remaining shields by 1 (red 1 -> 0, green 2 -> 1, blue 0 -> 0)
     state = scanCard(state, 'KD_KHOR_B01', undefined, zeroDiceRng).state;
     expect(state.boss.primedElement).toBeNull();
     expect(state.lastReaction?.kind).toBe('melt');
-    expect(state.boss.hp).toBe(47);
+    expect(state.boss.hp).toBe(45);
     expect(state.boss.shields).toEqual({ red: 0, green: 1, blue: 0 });
+    expect(state.boss.lastBark).not.toBeNull();
     expect(state.effectQueue.some((e) => e.kind === 'elemental_reaction')).toBe(true);
   });
 
@@ -215,13 +216,13 @@ describe('Kinfire Delve QR Boss Raid Combat Engine', () => {
     state = scanCard(state, 'KD_ASHA_G08', undefined, zeroDiceRng).state;
     expect(state.boss.primedElement).toBe('green');
 
-    // Red card KD_KHOR_R01 (power 5) triggers Shatter: Math.ceil(5 * 1.5) = 8!
-    // Red shield is 4 -> 4 overflow damage -> HP 47 - 4 = 43
+    // Red card KD_KHOR_R01 (power 5) triggers Shatter: Math.ceil(5 * 1.5) = 8 + 2 (default prism_lens) = 10!
+    // Red shield is 4 -> 6 overflow damage -> HP 47 - 6 = 41
     state = scanCard(state, 'KD_KHOR_R01', undefined, zeroDiceRng).state;
     expect(state.boss.primedElement).toBeNull();
     expect(state.lastReaction?.kind).toBe('shatter');
     expect(state.boss.shields.red).toBe(0);
-    expect(state.boss.hp).toBe(43);
+    expect(state.boss.hp).toBe(41);
   });
 
   it('accumulates Synergy Gauge to 100 and fires triggerSynergyUltimate piercing Kalos invulnerability', () => {
@@ -232,9 +233,9 @@ describe('Kinfire Delve QR Boss Raid Combat Engine', () => {
     state = scanCard(state, 'KD_KHOR_R01', undefined, zeroDiceRng).state;
     expect(state.synergyGauge).toBe(30);
 
-    // 2) Blue card -> Melt reaction (+25) + Main (+15) + shield break (+15) = +55 -> 85
+    // 2) Blue card -> Melt reaction (+25) + prism_lens (+5) + Main (+15) + shield break (+15) = +60 -> 90
     state = scanCard(state, 'KD_ROLAND_B03', undefined, zeroDiceRng).state;
-    expect(state.synergyGauge).toBe(85);
+    expect(state.synergyGauge).toBe(90);
 
     // 3) Boost blue card (+20) -> capped at 100
     state = scanCard(state, 'KD_KHOR_B01', undefined, zeroDiceRng).state;
@@ -372,5 +373,109 @@ describe('Kinfire Delve QR Boss Raid Combat Engine', () => {
     expect(state.lastAiAction?.reactionHint).toBe('다음 빨강 카드로 과부하 융해 발동');
     expect(state.lastAiAction?.recommendedRole).toBe('defender');
     expect(state.boss.primedElement).toBe('blue');
+  });
+
+  it('handles Chronos Wyrm stance shifts, accelerate counter +1, chrono flip +4, rewind heal, and Phase 2', () => {
+    let state = createInitialGameState('chronos_wyrm', 'khor', 'asha', 'vision_amplifier');
+    expect(state.boss.hp).toBe(48);
+    expect(state.boss.shields).toEqual({ red: 3, green: 3, blue: 3 });
+    expect(state.boss.temporalStance).toBe('accelerate');
+
+    // Accelerate adds +1 to raw counter: base(2) + shields(9) + accelerate(1) = 12
+    expect(estimateBossCounter(state.boss, 0).raw).toBe(12);
+
+    // Trigger Chrono (green + blue) while in accelerate: +4 bonus damage & flips to rewind
+    state = scanCard(state, 'KD_ASHA_G08', undefined, zeroDiceRng).state; // green power 5 vs 3 shield -> 2 HP dmg (46)
+    expect(state.boss.hp).toBe(46);
+
+    state = scanCard(state, 'KD_KHOR_B01', undefined, zeroDiceRng).state; // blue power 3 + 4 (chrono flip) = 7 vs 3 shield -> 4 HP dmg (42)
+    expect(state.boss.temporalStance).toBe('rewind');
+    expect(state.boss.hp).toBe(42);
+    expect(state.boss.lastBark).toBe('시간의 궤도가 역전되었다!');
+
+    // Rewind grants +15 synergy on boost or shield break
+    const gaugeBefore = state.synergyGauge;
+    state = scanCard(state, 'KD_KHOR_R01', undefined, zeroDiceRng).state; // breaks red shield (3) -> +15 main + 15 break + 15 rewind = +45
+    expect(state.synergyGauge).toBe(Math.min(100, gaugeBefore + 45));
+
+    // Rewind heals boss +2 HP on counter when shields remain (green 0, blue 0, red 0? Wait: red broke, so restore 1 green shield to test heal)
+    state = {
+      ...state,
+      teamProtection: 10,
+      boss: {
+        ...state.boss,
+        shields: { red: 0, green: 1, blue: 0 },
+      },
+    };
+    const hpBeforeCounter = state.boss.hp;
+    state = resolveBossCounterPhase(state);
+    expect(state.boss.hp).toBe(hpBeforeCounter + 2);
+
+    // startNextRound toggles temporalStance from rewind -> accelerate
+    state = proceedToMaintenance(state);
+    state = startNextRound(state);
+    expect(state.boss.temporalStance).toBe('accelerate');
+
+    // Phase 2 at <= 24 HP
+    state = {
+      ...state,
+      boss: {
+        ...state.boss,
+        hp: 25,
+        shields: { red: 0, green: 0, blue: 0 },
+      },
+    };
+    state = scanCard(state, 'KD_KHOR_R01', undefined, zeroDiceRng).state; // 5 dmg -> 20 HP <= 24
+    expect(state.boss.phase).toBe(2);
+    expect(state.boss.phase2Triggered).toBe(true);
+    expect(state.boss.subtitle).toBe('영겁의 시간 포식자');
+    expect(state.boss.shields).toEqual({ red: 2, green: 2, blue: 2 });
+    expect(state.boss.challenges.some((c) => c.id === 'CH_CHRONO_P2')).toBe(true);
+    expect(state.boss.intent.type).toBe('abyss_overdrive');
+  });
+
+  it('applies all 4 Relic effects (prism_lens, aegis_core, chrono_dial, vision_amplifier)', () => {
+    // 1. prism_lens vs non-prism reaction damage & synergy
+    let prism = createInitialGameState('vainglory_core', 'khor', 'asha', 'prism_lens');
+    prism = scanCard(prism, 'KD_ASHA_G08', undefined, zeroDiceRng).state;
+    prism = scanCard(prism, 'KD_KHOR_R01', undefined, zeroDiceRng).state; // Shatter + prism_lens (+2 dmg, +5 synergy)
+    expect(prism.boss.hp).toBe(41);
+    expect(prism.synergyGauge).toBe(90);
+
+    // 2. aegis_core: starts with +3 teamProtection and +1 on every shield break
+    let aegis = createInitialGameState('vainglory_core', 'khor', 'asha', 'aegis_core');
+    expect(aegis.teamProtection).toBe(3);
+    aegis = scanCard(aegis, 'KD_KHOR_R01', undefined, zeroDiceRng).state; // 0 card protection, breaks red shield -> +1
+    expect(aegis.teamProtection).toBe(4);
+
+    // 3. chrono_dial: first boost of round gets +2 power and +10 synergy, second boost does not
+    let dial = createInitialGameState('vainglory_core', 'khor', 'asha', 'chrono_dial');
+    dial = scanCard(dial, 'KD_KHOR_R01', undefined, zeroDiceRng).state; // main: breaks red (4), 1 overflow -> HP 49, gauge 30
+    dial = scanCard(dial, 'KD_ASHA_R01', undefined, zeroDiceRng).state; // 1st boost (boostValue 2 + 2 dial = 4 dmg -> HP 45, gauge +20+10 = 60)
+    expect(dial.boss.hp).toBe(45);
+    expect(dial.synergyGauge).toBe(60);
+    dial = scanCard(dial, 'KD_ASHA_R02', undefined, zeroDiceRng).state; // 2nd boost (boostValue 3 -> HP 42, gauge +20 = 80)
+    expect(dial.boss.hp).toBe(42);
+    expect(dial.synergyGauge).toBe(80);
+
+    // 4. vision_amplifier: AI Vision card gains +2 damage and +1 guard
+    const vis = createInitialGameState('vainglory_core', 'khor', 'asha', 'vision_amplifier');
+    const res = applyAiCardAction(
+      vis,
+      {
+        cardName: '비전 화염',
+        color: 'red',
+        skillTitle: '증폭 화염',
+        damage: 4,
+        guard: 1,
+        disruptChallenge: false,
+        specialNote: '테스트',
+        battleCry: '증폭!',
+      },
+      zeroDiceRng,
+    );
+    // 4 + 2 = 6 vs red shield 4 -> 2 overflow HP dmg (48), guard 1 + 1 = 2
+    expect(res.state.boss.hp).toBe(48);
+    expect(res.state.teamProtection).toBe(2);
   });
 });

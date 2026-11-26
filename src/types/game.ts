@@ -31,7 +31,22 @@ export type CardColor =
 
 export type SeekerId = 'khor' | 'asha' | 'roland';
 
-export type BossId = 'vainglory_core' | 'kalos_prime';
+export type BossId = 'vainglory_core' | 'kalos_prime' | 'chronos_wyrm';
+
+export type RelicId =
+  | 'prism_lens'
+  | 'aegis_core'
+  | 'chrono_dial'
+  | 'vision_amplifier';
+
+export interface RelicDef {
+  id: RelicId;
+  name: string;
+  subtitle: string;
+  description: string;
+}
+
+export type TemporalStance = 'accelerate' | 'rewind';
 
 export type RoundPhase =
   | 'boss_stance'
@@ -167,6 +182,8 @@ export interface BossState {
   primedElement: BaseColor | null;
   counterWeakened: number;
   intent: BossIntent;
+  temporalStance: TemporalStance | null;
+  lastBark: string | null;
 }
 
 export interface AiCardAction {
@@ -204,6 +221,7 @@ export interface GameState {
   maxTeamHp: number;
   teamProtection: number;
   synergyGauge: number;
+  relicId: RelicId;
   lastReaction: LastReactionInfo | null;
   players: [PlayerState, PlayerState];
   activeChain: ActiveActionChain;

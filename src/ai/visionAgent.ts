@@ -59,12 +59,21 @@ function buildSystemPrompt(boss: BossState): string {
     ? `현재 보스에게 [${boss.primedElement.toUpperCase()}] 원소가 부여되어 있습니다 (다른 속성 공격 시 원소 공명 발동: R+B=과부하 융해, B+G=시간 균열, R+G=파쇄 치명타).`
     : '현재 보스에게 부여된 원소가 없습니다 (공격 시 해당 원소가 대기 상태로 부여됩니다).';
 
+  const stanceDesc = boss.temporalStance
+    ? `현재 시간 태세: ${
+        boss.temporalStance === 'accelerate'
+          ? '가속 (반격 +1, 시간 균열[파랑+초록] 발동 시 추가 피해 +4 및 역행 전환)'
+          : '역행 (부스트/보호막 파쇄 시 게이지 +15, 반격 시 보호막 잔존 시 +2 회복)'
+      }`
+    : '';
+
   return [
     '당신은 실물 보드게임 카드를 카메라로 인식해 보스 레이드 전투를 수행하는 AI 전투 에이전트입니다.',
     '사용자가 보여준 카드 이미지를 보고 카드의 이름, 색상(빨강/초록/파랑/황금 랜턴), 능력치와 특수 효과를 해석하세요.',
     `현재 보스: ${boss.name} (${boss.subtitle}), PHASE ${boss.phase}, HP ${boss.hp}/${boss.maxHp}`,
     `현재 보스 보호막: RED ${boss.shields.red}, GREEN ${boss.shields.green}, BLUE ${boss.shields.blue}`,
     `예고된 보스 반격 의도: ${boss.intent.title} (${boss.intent.description})`,
+    stanceDesc,
     primedDesc,
     boss.invulnerable ? '보스는 현재 무적 결계 상태입니다(lantern 속성으로만 관통 가능).' : '',
     '반드시 아래 JSON 스키마만 출력하세요 (다른 설명 금지):',

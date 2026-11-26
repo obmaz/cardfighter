@@ -1,4 +1,4 @@
-import type { BaseColor, CombatEffectEvent } from '../types/game';
+import type { BaseColor, CombatEffectEvent, TemporalStance } from '../types/game';
 
 class SoundEngine {
   private ctx: AudioContext | null = null;
@@ -108,6 +108,16 @@ class SoundEngine {
     this.playTone(155, 48, 0.55, 'sawtooth', 0.24, 0);
     this.playTone(233, 72, 0.5, 'square', 0.14, 0.04);
     this.playTone(622, 466, 0.3, 'triangle', 0.15, 0.12);
+  }
+
+  public playTemporalShift(stance: TemporalStance) {
+    if (stance === 'rewind') {
+      this.playTone(784, 523, 0.18, 'sine', 0.12, 0);
+      this.playTone(587, 392, 0.22, 'triangle', 0.1, 0.08);
+    } else {
+      this.playTone(440, 659, 0.16, 'sine', 0.12, 0);
+      this.playTone(587, 880, 0.2, 'triangle', 0.1, 0.07);
+    }
   }
 
   public playEffect(ev: CombatEffectEvent) {

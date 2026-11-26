@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Application,
   Assets,
@@ -15,6 +15,8 @@ import type {
   BossState,
   CombatEffectEvent,
   DiceRollSummary,
+  ScanLogEntry,
+  TemporalStance,
 } from '../types/game';
 import { sfx } from '../audio/sfx';
 
@@ -22,6 +24,7 @@ interface BossViewportPixiProps {
   boss: BossState;
   effectQueue: CombatEffectEvent[];
   lastDiceRoll: DiceRollSummary | null;
+  latestLog?: ScanLogEntry | null;
 }
 
 interface Particle {
@@ -101,6 +104,7 @@ export function BossViewportPixi({
   boss,
   effectQueue,
   lastDiceRoll,
+  latestLog = null,
 }: BossViewportPixiProps) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const bossRef = useRef<BossState>(boss);
@@ -108,9 +112,31 @@ export function BossViewportPixi({
 
   const processedIdRef = useRef<number>(0);
   const pendingEventsRef = useRef<CombatEffectEvent[]>([]);
+  const prevStanceRef = useRef<{ bossId: BossId; stance: TemporalStance | null }>({
+    bossId: boss.id,
+    stance: boss.temporalStance,
+  });
 
-  // Enqueue unseen events
+  const [visibleCutIn, setVisibleCutIn] = useState<ScanLogEntry | null>(null);
+
+  // Reset event tracking on raid restart / boss switch
   useEffect(() => {
+    processedIdRef.current = 0;
+    pendingEventsRef.current = [];
+  }, [boss.id]);
+
+  // Enqueue unseen events (and reset cursor when effectQueue restarts from id 1)
+  useEffect(() => {
+    if (effectQueue.length === 0) {
+      processedIdRef.current = 0;
+      pendingEventsRef.current = [];
+      return;
+    }
+    const maxId = effectQueue[effectQueue.length - 1].id;
+    if (maxId < processedIdRef.current) {
+      processedIdRef.current = 0;
+      pendingEventsRef.current = [];
+    }
     const fresh = effectQueue.filter((e) => e.id > processedIdRef.current);
     if (fresh.length > 0) {
       processedIdRef.current = fresh[fresh.length - 1].id;
@@ -118,6 +144,33 @@ export function BossViewportPixi({
       fresh.forEach((ev) => sfx.playEffect(ev));
     }
   }, [effectQueue]);
+
+  // Subtle temporal chime when Chronos Wyrm flips stance
+  useEffect(() => {
+    const prev = prevStanceRef.current;
+    if (
+      prev.bossId === boss.id &&
+      boss.id === 'chronos_wyrm' &&
+      boss.temporalStance &&
+      prev.stance !== boss.temporalStance
+    ) {
+      sfx.playTemporalShift(boss.temporalStance);
+    }
+    prevStanceRef.current = { bossId: boss.id, stance: boss.temporalStance };
+  }, [boss.id, boss.temporalStance]);
+
+  // Auto-fading skill cut-in toast
+  useEffect(() => {
+    if (!latestLog) {
+      setVisibleCutIn(null);
+      return;
+    }
+    setVisibleCutIn(latestLog);
+    const timer = window.setTimeout(() => {
+      setVisibleCutIn((cur) => (cur?.id === latestLog.id ? null : cur));
+    }, 2200);
+    return () => window.clearTimeout(timer);
+  }, [latestLog?.id]);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -193,12 +246,12 @@ export function BossViewportPixi({
       let activeSpriteBossId: BossId | null = null;
       let activeBossSprite: Sprite | null = null;
 
-      // Load optional /assets/*.jpg artwork gracefully without blocking canvas init
       void Promise.all([
         tryLoadTexture('/assets/arena_bg.jpg'),
         tryLoadTexture('/assets/vainglory_core.jpg'),
         tryLoadTexture('/assets/kalos_prime.jpg'),
-      ]).then(([bgTex, vainTex, kalosTex]) => {
+        tryLoadTexture('/assets/chronos_wyrm.jpg'),
+      ]).then(([bgTex, vainTex, kalosTex, chronoTex]) => {
         if (destroyed) return;
         if (bgTex) {
           arenaBgSprite = new Sprite(bgTex);
@@ -209,6 +262,7 @@ export function BossViewportPixi({
         }
         if (vainTex) bossTextures.vainglory_core = vainTex;
         if (kalosTex) bossTextures.kalos_prime = kalosTex;
+        if (chronoTex) bossTextures.chronos_wyrm = chronoTex;
       });
 
       const spawnParticles = (
@@ -361,7 +415,9 @@ export function BossViewportPixi({
           arenaBgSprite.tint = isPhase2
             ? b.id === 'kalos_prime'
               ? 0xa855f7
-              : 0xfca5a5
+              : b.id === 'chronos_wyrm'
+                ? 0x38bdf8
+                : 0xfca5a5
             : 0x94a3b8;
         }
 
@@ -376,12 +432,19 @@ export function BossViewportPixi({
           bossArtHolder.addChild(spr);
           activeBossSprite = spr;
           activeSpriteBossId = b.id;
+        } else if (!tex && activeBossSprite && activeSpriteBossId !== b.id) {
+          bossArtHolder.removeChildren().forEach((c) => c.destroy());
+          activeBossSprite = null;
+          activeSpriteBossId = null;
         }
+
         if (activeBossSprite) {
           activeBossSprite.tint = isPhase2
             ? b.id === 'kalos_prime'
               ? 0xe9d5ff
-              : 0xffd1c1
+              : b.id === 'chronos_wyrm'
+                ? 0xbae6fd
+                : 0xffd1c1
             : 0xffffff;
         }
         const hasSprite = Boolean(activeBossSprite);
@@ -392,14 +455,20 @@ export function BossViewportPixi({
         const auraHex = isPhase2
           ? b.id === 'kalos_prime'
             ? 0xa855f7
-            : 0xef4444
+            : b.id === 'chronos_wyrm'
+              ? 0x0ea5e9
+              : 0xef4444
           : b.id === 'kalos_prime'
             ? 0x7e22ce
-            : b.isOverheated
-              ? 0xef4444
-              : b.isUnstable
+            : b.id === 'chronos_wyrm'
+              ? b.temporalStance === 'rewind'
                 ? 0x38bdf8
-                : 0xd97706;
+                : 0xf59e0b
+              : b.isOverheated
+                ? 0xef4444
+                : b.isUnstable
+                  ? 0x38bdf8
+                  : 0xd97706;
 
         bgLayer.ellipse(cx, cy + 74, 155, 32).fill({
           color: auraHex,
@@ -422,7 +491,12 @@ export function BossViewportPixi({
 
         if (isPhase2) {
           const pulseR = 78 + Math.sin(elapsed * 6) * 6;
-          const p2Color = b.id === 'kalos_prime' ? 0xc084fc : 0xff4d4f;
+          const p2Color =
+            b.id === 'kalos_prime'
+              ? 0xc084fc
+              : b.id === 'chronos_wyrm'
+                ? 0x38bdf8
+                : 0xff4d4f;
           phase2Aura.circle(0, 0, pulseR).stroke({
             width: 3,
             color: p2Color,
@@ -497,6 +571,64 @@ export function BossViewportPixi({
               width: 3,
               color: isPhase2 ? 0xff4d4f : 0xf59e0b,
               alpha: 0.9,
+            });
+          }
+        } else if (b.id === 'chronos_wyrm') {
+          // Chronos Wyrm: Concentric golden-cyan time rings + hourglass core
+          const dir = b.temporalStance === 'rewind' ? -1 : 1;
+          const primaryRing = b.temporalStance === 'rewind' ? 0x38bdf8 : 0xfbbf24;
+          const secondaryRing = b.temporalStance === 'rewind' ? 0xfbbf24 : 0x38bdf8;
+
+          gearOuter.circle(0, 0, 74).stroke({
+            width: 3,
+            color: primaryRing,
+            alpha: 0.78,
+          });
+          for (let i = 0; i < 12; i++) {
+            const a = (i / 12) * Math.PI * 2;
+            const inner = i % 3 === 0 ? 64 : 69;
+            gearOuter
+              .moveTo(Math.cos(a) * inner, Math.sin(a) * inner)
+              .lineTo(Math.cos(a) * 76, Math.sin(a) * 76)
+              .stroke({ width: i % 3 === 0 ? 3 : 1.5, color: primaryRing, alpha: 0.9 });
+          }
+          gearOuter.rotation = elapsed * 0.55 * dir * speedMult;
+
+          gearInner.circle(0, 0, 56).stroke({
+            width: 2.5,
+            color: secondaryRing,
+            alpha: 0.85,
+          });
+          for (let i = 0; i < 4; i++) {
+            const a = (i / 4) * Math.PI * 2;
+            gearInner
+              .circle(Math.cos(a) * 56, Math.sin(a) * 56, 4.5)
+              .fill({ color: secondaryRing });
+          }
+          gearInner.rotation = -elapsed * 0.9 * dir * speedMult;
+
+          if (!hasSprite) {
+            const coreHue = flashTimer > 0 ? 0xffffff : primaryRing;
+            // Hourglass silhouette
+            bossBody
+              .moveTo(-26, -34)
+              .lineTo(26, -34)
+              .lineTo(6, 0)
+              .lineTo(26, 34)
+              .lineTo(-26, 34)
+              .lineTo(-6, 0)
+              .closePath()
+              .fill({ color: 0x0f172a, alpha: 0.96 })
+              .stroke({ width: 3, color: coreHue });
+            bossBody.circle(0, 0, 9 + Math.sin(elapsed * 4) * 1.5).fill({
+              color: secondaryRing,
+              alpha: 0.95,
+            });
+          } else {
+            bossBody.circle(0, 0, 45).stroke({
+              width: 3,
+              color: primaryRing,
+              alpha: 0.92,
             });
           }
         } else {
@@ -598,7 +730,12 @@ export function BossViewportPixi({
             spawnParticles(cx, cy, 0xf472b6, 20, 360);
             spawnFloater(cx, cy - 14, ev.label, 0xfef08a, 22);
           } else if (ev.kind === 'phase_two') {
-            const p2Hex = bossRef.current.id === 'kalos_prime' ? 0xc084fc : 0xff4d4f;
+            const p2Hex =
+              bossRef.current.id === 'kalos_prime'
+                ? 0xc084fc
+                : bossRef.current.id === 'chronos_wyrm'
+                  ? 0x38bdf8
+                  : 0xff4d4f;
             shakeTimer = 0.55;
             shakeStrength = 15;
             flashTimer = 0.16;
@@ -731,7 +868,28 @@ export function BossViewportPixi({
         />
       </div>
 
-      {/* Boss Status & Elemental Primer Overlay */}
+      {/* Auto-fading Skill Cut-In Toast */}
+      {visibleCutIn && (
+        <div
+          key={visibleCutIn.id}
+          className={`skill-cutin-toast cutin-${visibleCutIn.resolvedColor}`}
+        >
+          <strong>{visibleCutIn.cardName}</strong>
+          <span>
+            {visibleCutIn.damageDealt > 0 ? `-${visibleCutIn.damageDealt} HP · ` : ''}
+            {visibleCutIn.note}
+          </span>
+        </div>
+      )}
+
+      {/* Boss Reactive Bark */}
+      {boss.lastBark && (
+        <div key={boss.lastBark} className="boss-bark-pill">
+          <span>“{boss.lastBark}”</span>
+        </div>
+      )}
+
+      {/* Boss Status, Temporal Stance & Elemental Primer Overlay */}
       <div className="boss-state-badges">
         {primer ? (
           <span className={`primer-pill ${primer.cls}`}>
@@ -742,6 +900,19 @@ export function BossViewportPixi({
           <span className="primer-pill primer-idle">
             <strong>원소 공명</strong>
             <small>속성 2종 교차 시 반응</small>
+          </span>
+        )}
+        {boss.temporalStance && (
+          <span
+            className={`status-chip ${
+              boss.temporalStance === 'accelerate'
+                ? 'chip-stance-accel'
+                : 'chip-stance-rewind'
+            }`}
+          >
+            {boss.temporalStance === 'accelerate'
+              ? '가속 태세 +1 반격'
+              : '역행 태세 · 보호막 잔존 시 +2 회복'}
           </span>
         )}
         {boss.phase === 2 && (

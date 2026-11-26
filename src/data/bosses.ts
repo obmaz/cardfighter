@@ -86,7 +86,7 @@ export function createBossIntent(
   let pool: BossIntentType[];
   if (phase === 2) {
     pool = ['abyss_overdrive', 'heavy_slam', 'shield_regen', 'void_drain'];
-  } else if (bossId === 'kalos_prime') {
+  } else if (bossId === 'kalos_prime' || bossId === 'chronos_wyrm') {
     pool = ['heavy_slam', 'shield_regen', 'void_drain'];
   } else {
     pool = ['heavy_slam', 'shield_regen', 'counter_stance'];
@@ -134,11 +134,36 @@ export const BOSS_TEMPLATES: Record<BossId, BossTemplate> = {
       '체력 22 이하 시 [PHASE 2: 공허 승천자 칼로스] 각성 — 무적 결계 재전개 및 공허 승천 결계 소환 · 탈진 3회 시 팀 -4 피해',
     ],
   },
+  chronos_wyrm: {
+    id: 'chronos_wyrm',
+    name: '크로노스 웜',
+    subtitle: '시간의 포식자',
+    phase2HpThreshold: 24,
+    phase2Title: '영겁의 시간 포식자',
+    difficulty: '전략 / 태세 전환형',
+    maxHp: 48,
+    maxRounds: 8,
+    baseShields: { red: 3, green: 3, blue: 3 },
+    baseCounterAttack: 2,
+    gimmickSummary: [
+      '[시간 태세 전환]: 매 라운드 [가속] ↔ [역행] 태세를 교대합니다.',
+      '[가속 태세]: 반격 피해 +1. [시간 균열(파랑+초록)] 발동 시 추가 피해 +4를 입히고 즉시 [역행]으로 전환합니다.',
+      '[역행 태세]: 부스트 체인/보호막 파쇄 시 공명 게이지 +15 추가! 단, 반격 시 보호막이 남아있으면 보스 체력 +2 회복!',
+      '[PHASE 2 (HP 24 이하)]: 영겁의 시간 포식자 각성 — 전 보호막 +2, 시간 왜곡 챌린지(초록 해제) 출현.',
+    ],
+  },
 };
 
 export function createInitialBossState(bossId: BossId): BossState {
   const tpl = BOSS_TEMPLATES[bossId];
   const initialIntent = createBossIntent(bossId, 1, 1);
+  const nextIntentText =
+    bossId === 'kalos_prime'
+      ? '무적 결계 전개 중 · 파랑 플라스크를 깨서 랜턴을 충전하라'
+      : bossId === 'chronos_wyrm'
+        ? `가속 태세 (+1 반격) · ${initialIntent.title} (${initialIntent.description})`
+        : `${initialIntent.title} · ${initialIntent.description}`;
+
   return {
     id: tpl.id,
     name: tpl.name,
@@ -155,15 +180,14 @@ export function createInitialBossState(bossId: BossId): BossState {
     voidGauge: 0,
     wellTriggered: false,
     challenges: [],
-    nextIntentText:
-      bossId === 'vainglory_core'
-        ? `${initialIntent.title} · ${initialIntent.description}`
-        : '무적 결계 전개 중 · 파랑 플라스크를 깨서 랜턴을 충전하라',
+    nextIntentText,
     baseCounterAttack: tpl.baseCounterAttack,
     phase: 1,
     phase2Triggered: false,
     primedElement: null,
     counterWeakened: 0,
     intent: initialIntent,
+    temporalStance: bossId === 'chronos_wyrm' ? 'accelerate' : null,
+    lastBark: null,
   };
 }
