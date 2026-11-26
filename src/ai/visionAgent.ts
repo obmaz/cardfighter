@@ -55,11 +55,17 @@ export function isAiConfigured(config: AiAgentConfig): boolean {
 }
 
 function buildSystemPrompt(boss: BossState): string {
+  const primedDesc = boss.primedElement
+    ? `현재 보스에게 [${boss.primedElement.toUpperCase()}] 원소가 부여되어 있습니다 (다른 속성 공격 시 원소 공명 발동: R+B=과부하 융해, B+G=시간 균열, R+G=파쇄 치명타).`
+    : '현재 보스에게 부여된 원소가 없습니다 (공격 시 해당 원소가 대기 상태로 부여됩니다).';
+
   return [
     '당신은 실물 보드게임 카드를 카메라로 인식해 보스 레이드 전투를 수행하는 AI 전투 에이전트입니다.',
     '사용자가 보여준 카드 이미지를 보고 카드의 이름, 색상(빨강/초록/파랑/황금 랜턴), 능력치와 특수 효과를 해석하세요.',
-    `현재 보스: ${boss.name} (${boss.subtitle}), HP ${boss.hp}/${boss.maxHp}`,
+    `현재 보스: ${boss.name} (${boss.subtitle}), PHASE ${boss.phase}, HP ${boss.hp}/${boss.maxHp}`,
     `현재 보스 보호막: RED ${boss.shields.red}, GREEN ${boss.shields.green}, BLUE ${boss.shields.blue}`,
+    `예고된 보스 반격 의도: ${boss.intent.title} (${boss.intent.description})`,
+    primedDesc,
     boss.invulnerable ? '보스는 현재 무적 결계 상태입니다(lantern 속성으로만 관통 가능).' : '',
     '반드시 아래 JSON 스키마만 출력하세요 (다른 설명 금지):',
     '{',
@@ -70,7 +76,9 @@ function buildSystemPrompt(boss: BossState): string {
     '  "guard": 0~5 사이 정수 (방어/보호 계열이면 높게),',
     '  "disruptChallenge": true 또는 false (방해 제거/민첩/초록 계열이면 true),',
     '  "specialNote": "카드 능력 요약 1줄",',
-    '  "battleCry": "AI 에이전트의 짧은 전투 대사 1문장"',
+    '  "battleCry": "AI 에이전트의 짧은 전투 대사 1문장 (보스 페이즈/의도/원소 공명 연계 반영)",',
+    '  "reactionHint": "다음 연계할 추천 원소 공명 또는 공략 힌트 (선택)",',
+    '  "recommendedRole": "breaker | defender | disruptor | burst 중 하나 (선택)"',
     '}',
   ]
     .filter(Boolean)
@@ -95,6 +103,19 @@ function normalizeAiAction(raw: unknown): AiCardAction {
 
   const damageNum = Number(obj.damage);
   const guardNum = Number(obj.guard);
+  const validRoles = ['breaker', 'defender', 'disruptor', 'burst'] as const;
+  const rawRole = typeof obj.recommendedRole === 'string'
+    ? obj.recommendedRole.toLowerCase().trim()
+    : '';
+  const recommendedRole = validRoles.includes(
+    rawRole as (typeof validRoles)[number],
+  )
+    ? (rawRole as AiCardAction['recommendedRole'])
+    : undefined;
+  const reactionHint =
+    typeof obj.reactionHint === 'string' && obj.reactionHint.trim()
+      ? obj.reactionHint.trim().slice(0, 80)
+      : undefined;
 
   return {
     cardName: String(obj.cardName || '미확인 카드').slice(0, 40),
@@ -114,6 +135,8 @@ function normalizeAiAction(raw: unknown): AiCardAction {
     battleCry: String(
       obj.battleCry || '카드의 힘을 읽어 보스를 타격한다!',
     ).slice(0, 100),
+    ...(reactionHint ? { reactionHint } : {}),
+    ...(recommendedRole ? { recommendedRole } : {}),
   };
 }
 

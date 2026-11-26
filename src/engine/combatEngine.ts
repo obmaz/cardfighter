@@ -1,9 +1,15 @@
-import { BOSS_TEMPLATES, createInitialBossState } from '../data/bosses';
+import {
+  BOSS_TEMPLATES,
+  createBossIntent,
+  createInitialBossState,
+  getBossIntentByType,
+} from '../data/bosses';
 import { CARD_BY_ID, SEEKER_ROSTER, getAllowedColors } from '../data/cards';
 import type {
   AiCardAction,
   BaseColor,
   BossId,
+  BossState,
   CardDef,
   ChallengeCard,
   CombatEffectEvent,
@@ -11,10 +17,12 @@ import type {
   DiceRollSummary,
   GameState,
   PlayerState,
+  ReactionKind,
+  RngFn,
   SeekerId,
 } from '../types/game';
 
-export type RngFn = () => number;
+export type { RngFn } from '../types/game';
 
 const COLOR_LABEL: Record<BaseColor | 'lantern', string> = {
   red: '빨강(힘)',
@@ -51,6 +59,8 @@ export function createInitialGameState(
     teamHp: 10,
     maxTeamHp: 10,
     teamProtection: 0,
+    synergyGauge: 0,
+    lastReaction: null,
     players: [createPlayer(0, p1Seeker), createPlayer(1, p2Seeker)],
     activeChain: {
       ownerSlot: 0,
@@ -145,6 +155,265 @@ function createWellChallenges(): ChallengeCard[] {
       description: '초록 카드로 제거 필요 (미제거 시 반격 페이즈 팀 체력 -2)',
     },
   ];
+}
+
+interface ElementalReactionSpec {
+  kind: ReactionKind;
+  title: string;
+  detail: string;
+  bonusAttack: number;
+  attackMultiplier: number;
+  shieldShred: number;
+  counterWeakened: number;
+  bonusProtection: number;
+  clearChallenge: boolean;
+}
+
+const REACTION_SPECS: Record<ReactionKind, ElementalReactionSpec> = {
+  melt: {
+    kind: 'melt',
+    title: '과부하 융해',
+    detail: '위력 +3 · 전 보호막 -1',
+    bonusAttack: 3,
+    attackMultiplier: 1,
+    shieldShred: 1,
+    counterWeakened: 0,
+    bonusProtection: 0,
+    clearChallenge: false,
+  },
+  chrono: {
+    kind: 'chrono',
+    title: '시간 균열',
+    detail: '반격 -2 · 방어 +2 · 챌린지 해제',
+    bonusAttack: 0,
+    attackMultiplier: 1,
+    shieldShred: 0,
+    counterWeakened: 2,
+    bonusProtection: 2,
+    clearChallenge: true,
+  },
+  shatter: {
+    kind: 'shatter',
+    title: '파쇄 치명타',
+    detail: '위력 1.5배 증폭',
+    bonusAttack: 0,
+    attackMultiplier: 1.5,
+    shieldShred: 0,
+    counterWeakened: 0,
+    bonusProtection: 0,
+    clearChallenge: false,
+  },
+};
+
+function resolveElementalReaction(
+  primed: BaseColor | null,
+  incoming: BaseColor,
+): { nextPrimed: BaseColor | null; reaction: ElementalReactionSpec | null } {
+  if (!primed || primed === incoming) {
+    return { nextPrimed: incoming, reaction: null };
+  }
+
+  const pair = [primed, incoming].sort().join('+');
+  if (pair === 'blue+red') {
+    return { nextPrimed: null, reaction: REACTION_SPECS.melt };
+  }
+  if (pair === 'blue+green') {
+    return { nextPrimed: null, reaction: REACTION_SPECS.chrono };
+  }
+  return { nextPrimed: null, reaction: REACTION_SPECS.shatter };
+}
+
+function removeMatchingChallenge(
+  challenges: ChallengeCard[],
+  resolvedColor: BaseColor,
+  hasDisrupt: boolean,
+): { remaining: ChallengeCard[]; cleared: ChallengeCard | null } {
+  if (challenges.length === 0) {
+    return { remaining: challenges, cleared: null };
+  }
+  const colorMatchIdx = challenges.findIndex(
+    (ch) => ch.requiredColor === resolvedColor,
+  );
+  if (colorMatchIdx !== -1) {
+    const remaining = [...challenges];
+    const [cleared] = remaining.splice(colorMatchIdx, 1);
+    return { remaining, cleared: cleared ?? null };
+  }
+  if (resolvedColor === 'green' || hasDisrupt) {
+    const [cleared, ...remaining] = challenges;
+    return { remaining, cleared: cleared ?? null };
+  }
+  return { remaining: challenges, cleared: null };
+}
+
+function checkAndApplyPhase2(prevState: GameState): GameState {
+  const { boss } = prevState;
+  const tpl = BOSS_TEMPLATES[boss.id];
+  if (boss.hp <= 0 || boss.phase2Triggered || boss.hp > tpl.phase2HpThreshold) {
+    return prevState;
+  }
+
+  const abyssIntent = getBossIntentByType('abyss_overdrive');
+  let nextBoss: BossState = {
+    ...boss,
+    phase: 2,
+    phase2Triggered: true,
+    subtitle: tpl.phase2Title,
+    baseCounterAttack: boss.baseCounterAttack + 1,
+    intent: abyssIntent,
+    nextIntentText: `${abyssIntent.title} · ${abyssIntent.description}`,
+  };
+
+  if (boss.id === 'vainglory_core') {
+    const nextRed = boss.shields.red + 2;
+    const nextBlue = boss.shields.blue + 2;
+    nextBoss = {
+      ...nextBoss,
+      wellTriggered: true,
+      challenges: createWellChallenges(),
+      shields: {
+        ...boss.shields,
+        red: nextRed,
+        blue: nextBlue,
+      },
+      maxShields: {
+        red: Math.max(boss.maxShields.red, nextRed),
+        green: boss.maxShields.green,
+        blue: Math.max(boss.maxShields.blue, nextBlue),
+      },
+    };
+  } else {
+    nextBoss = {
+      ...nextBoss,
+      invulnerable: true,
+      challenges: [
+        ...boss.challenges,
+        {
+          id: 'CH_VOID_PHASE2',
+          name: '공허 승천 결계',
+          requiredColor: 'blue',
+          penaltyDamage: 2,
+          description: '파랑 카드 또는 방해 제거로 해제',
+        },
+      ],
+    };
+  }
+
+  let state: GameState = {
+    ...prevState,
+    boss: nextBoss,
+  };
+
+  state = pushEvent(state, {
+    kind: 'phase_two',
+    color: boss.id === 'kalos_prime' ? 'void' : 'red',
+    label: `PHASE 2 각성! [${tpl.phase2Title}]`,
+  });
+
+  return state;
+}
+
+function applyVictoryIfDead(state: GameState): GameState {
+  if (state.boss.hp > 0) return state;
+  return {
+    ...state,
+    phase: 'victory',
+    endReason: `${state.boss.name}을(를) ${state.round}라운드 만에 격파했습니다!`,
+  };
+}
+
+export function estimateBossCounter(
+  boss: BossState,
+  teamProtection: number,
+): { raw: number; absorbed: number; net: number; weakened: number } {
+  const remainingShieldSum =
+    boss.shields.red + boss.shields.green + boss.shields.blue;
+  const overheatBonus = boss.isOverheated ? 2 : 0;
+  const challengePenalty = boss.challenges.reduce(
+    (sum, ch) => sum + ch.penaltyDamage,
+    0,
+  );
+  const raw = Math.max(
+    0,
+    boss.baseCounterAttack +
+      remainingShieldSum +
+      overheatBonus +
+      challengePenalty +
+      boss.intent.bonusDamage -
+      boss.counterWeakened,
+  );
+  const effectiveProtection = Math.max(
+    0,
+    teamProtection - boss.intent.pierceGuard,
+  );
+  const absorbed = Math.min(effectiveProtection, raw);
+  const net = Math.max(0, raw - absorbed);
+
+  return {
+    raw,
+    absorbed,
+    net,
+    weakened: boss.counterWeakened,
+  };
+}
+
+export function triggerSynergyUltimate(
+  prevState: GameState,
+): { state: GameState; error?: string } {
+  if (prevState.phase !== 'coop_turn') {
+    return {
+      state: prevState,
+      error: '현재는 [탐구자 협력 턴] 페이즈가 아닙니다.',
+    };
+  }
+  if (prevState.synergyGauge < 100) {
+    return {
+      state: prevState,
+      error: '합동 궁극기 게이지가 100%에 도달해야 발동할 수 있습니다.',
+    };
+  }
+
+  const multiplier = prevState.boss.isUnstable ? 1.5 : 1;
+  const damage = Math.ceil(10 * multiplier);
+  const newBossHp = Math.max(0, prevState.boss.hp - damage);
+  const brokeInvuln = prevState.boss.invulnerable;
+
+  let state: GameState = {
+    ...prevState,
+    synergyGauge: 0,
+    teamProtection: prevState.teamProtection + 3,
+    boss: {
+      ...prevState.boss,
+      hp: newBossHp,
+      invulnerable: false,
+    },
+    logs: [
+      {
+        id: prevState.nextEventId,
+        round: prevState.round,
+        qrCode: 'SYNERGY_ULTIMATE',
+        cardName: '성좌 공명 (합동 궁극기)',
+        playerName: '탐구자 합동',
+        resolvedColor: 'lantern' as const,
+        isBoost: false,
+        damageDealt: damage,
+        shieldBroken: brokeInvuln,
+        note: `${brokeInvuln ? '무적 결계 관통! ' : ''}관통 ${damage} 피해 · 팀 방어 +3`,
+      },
+      ...prevState.logs,
+    ].slice(0, 30),
+  };
+
+  state = pushEvent(state, {
+    kind: 'synergy_ultimate',
+    color: 'lantern',
+    amount: damage,
+    label: `성좌 공명 발동! -${damage} HP · 방어 +3`,
+  });
+
+  state = checkAndApplyPhase2(state);
+  state = applyVictoryIfDead(state);
+  return { state };
 }
 
 export function resolveCardOwnerSlot(state: GameState, card: CardDef): 0 | 1 {
@@ -318,32 +587,8 @@ function resolveCardExecution(
       label: `킨파이어 랜턴 해방! -${damage} HP`,
     });
 
-    if (state.boss.id === 'vainglory_core' && newBossHp <= 25 && newBossHp > 0 && !state.boss.wellTriggered) {
-      state = {
-        ...state,
-        boss: {
-          ...state.boss,
-          wellTriggered: true,
-          challenges: createWellChallenges(),
-        },
-      };
-      state = pushEvent(state, {
-        kind: 'boss_enrage',
-        color: 'red',
-        label: '[우물의 심연] 방해 챌린지 2장 출현!',
-      });
-    }
-
-    if (newBossHp <= 0) {
-      return {
-        state: {
-          ...state,
-          phase: 'victory',
-          endReason: `${state.boss.name}을(를) ${state.round}라운드 만에 격파했습니다!`,
-        },
-      };
-    }
-
+    state = checkAndApplyPhase2(state);
+    state = applyVictoryIfDead(state);
     return { state };
   }
 
@@ -405,7 +650,16 @@ function resolveCardExecution(
 
   const dice = rollDice(card.diceCount, resolvedColor, state.nextEventId, rng);
   const baseValue = isBoost ? card.boostValue : card.power;
-  const rawAttack = baseValue + (dice?.totalBonus ?? 0);
+  const baseRawAttack = baseValue + (dice?.totalBonus ?? 0);
+
+  // Elemental Primer & Reaction resolution
+  const { nextPrimed, reaction } = resolveElementalReaction(
+    state.boss.primedElement,
+    resolvedColor,
+  );
+  const rawAttack = reaction
+    ? Math.ceil((baseRawAttack + reaction.bonusAttack) * reaction.attackMultiplier)
+    : baseRawAttack;
 
   // Decrement estimated hand count for scanned player
   const actingPlayer = state.players[ownerSlot];
@@ -428,14 +682,23 @@ function resolveCardExecution(
   const healAmount = card.keywords.includes('heal') ? 1 : 0;
   const nextTeamHp = Math.min(state.maxTeamHp, state.teamHp + healAmount);
 
-  // Challenge disruption (Green or disrupt keyword)
-  let challenges = [...state.boss.challenges];
-  let clearedChallenge: ChallengeCard | null = null;
-  if (
-    challenges.length > 0 &&
-    (resolvedColor === 'green' || card.keywords.includes('disrupt'))
-  ) {
-    clearedChallenge = challenges.shift() ?? null;
+  // Challenge disruption (matching requiredColor, Green, disrupt keyword, or Chrono reaction)
+  const clearedChallenges: ChallengeCard[] = [];
+  const firstDisrupt = removeMatchingChallenge(
+    state.boss.challenges,
+    resolvedColor,
+    card.keywords.includes('disrupt'),
+  );
+  let challenges = firstDisrupt.remaining;
+  if (firstDisrupt.cleared) {
+    clearedChallenges.push(firstDisrupt.cleared);
+  }
+  if (reaction?.clearChallenge && challenges.length > 0) {
+    const [chronoCleared, ...restChallenges] = challenges;
+    challenges = restChallenges;
+    if (chronoCleared) {
+      clearedChallenges.push(chronoCleared);
+    }
   }
 
   // Apply damage to matching color Shield first, overflow to Boss HP
@@ -465,10 +728,17 @@ function resolveCardExecution(
     }
   }
 
-  const nextShields = {
+  let nextShields = {
     ...state.boss.shields,
     [resolvedColor]: newShieldValue,
   };
+  if (reaction && reaction.shieldShred > 0) {
+    nextShields = {
+      red: Math.max(0, nextShields.red - reaction.shieldShred),
+      green: Math.max(0, nextShields.green - reaction.shieldShred),
+      blue: Math.max(0, nextShields.blue - reaction.shieldShred),
+    };
+  }
 
   // Lantern charging triggers
   let lanternChargedMsg = '';
@@ -538,19 +808,43 @@ function resolveCardExecution(
         boostCards: [],
       };
 
+  const synergyGain =
+    (isBoost ? 20 : 15) +
+    (reaction ? 25 : 0) +
+    (shieldBrokenNow ? 15 : 0);
+  const nextSynergyGauge = Math.min(100, state.synergyGauge + synergyGain);
+  const nextCounterWeakened =
+    state.boss.counterWeakened + (reaction?.counterWeakened ?? 0);
+  const nextTeamProtection =
+    state.teamProtection + card.protection + (reaction?.bonusProtection ?? 0);
+
   const totalEffectiveDamage = shieldDamage + hpDamage;
   const logNoteParts: string[] = [];
   if (isBoost) logNoteParts.push(`부스트 +${card.boostValue}`);
   if (dice && dice.totalBonus > 0) logNoteParts.push(`주사위 +${dice.totalBonus}`);
+  if (reaction) logNoteParts.push(`원소 공명[${reaction.title}]: ${reaction.detail}`);
   if (card.protection > 0) logNoteParts.push(`보호 +${card.protection}`);
   if (shieldBrokenNow) logNoteParts.push(`${COLOR_LABEL[resolvedColor]} 보호막 파쇄!`);
   if (blockedByInvuln) logNoteParts.push('본체 무적에 막힘 (랜턴 필요)');
-  if (clearedChallenge) logNoteParts.push(`챌린지 [${clearedChallenge.name}] 제거`);
+  for (const ch of clearedChallenges) {
+    logNoteParts.push(`챌린지 [${ch.name}] 제거`);
+  }
+
+  const nextLastReaction = reaction
+    ? {
+        kind: reaction.kind,
+        title: reaction.title,
+        detail: reaction.detail,
+        id: state.nextEventId,
+      }
+    : state.lastReaction;
 
   state = {
     ...state,
     teamHp: nextTeamHp,
-    teamProtection: state.teamProtection + card.protection,
+    teamProtection: nextTeamProtection,
+    synergyGauge: nextSynergyGauge,
+    lastReaction: nextLastReaction,
     players: finalPlayers,
     activeChain: nextChain,
     roundColorCounts: nextColorCounts,
@@ -564,6 +858,8 @@ function resolveCardExecution(
       isOverheated,
       overheatedColor,
       challenges,
+      primedElement: nextPrimed,
+      counterWeakened: nextCounterWeakened,
     },
     logs: [
       {
@@ -601,6 +897,15 @@ function resolveCardExecution(
       : `${card.name} -${totalEffectiveDamage}`,
   });
 
+  if (reaction) {
+    state = pushEvent(state, {
+      kind: 'elemental_reaction',
+      color: resolvedColor,
+      amount: reaction.kind === 'shatter' ? rawAttack : reaction.kind === 'melt' ? 3 : 2,
+      label: `원소 공명 [${reaction.title}]! ${reaction.detail}`,
+    });
+  }
+
   if (shieldBrokenNow) {
     state = pushEvent(state, {
       kind: 'shield_break',
@@ -608,11 +913,11 @@ function resolveCardExecution(
       label: `${COLOR_LABEL[resolvedColor]} 보호막 파괴!`,
     });
   }
-  if (clearedChallenge) {
+  for (const ch of clearedChallenges) {
     state = pushEvent(state, {
       kind: 'challenge_clear',
       color: 'green',
-      label: `방해 챌린지 해제: ${clearedChallenge.name}`,
+      label: `방해 챌린지 해제: ${ch.name}`,
     });
   }
   if (justBecameUnstable) {
@@ -630,37 +935,8 @@ function resolveCardExecution(
     });
   }
 
-  if (
-    state.boss.id === 'vainglory_core' &&
-    newBossHp <= 25 &&
-    newBossHp > 0 &&
-    !state.boss.wellTriggered
-  ) {
-    state = {
-      ...state,
-      boss: {
-        ...state.boss,
-        wellTriggered: true,
-        challenges: createWellChallenges(),
-      },
-    };
-    state = pushEvent(state, {
-      kind: 'boss_enrage',
-      color: 'red',
-      label: '[우물의 심연] 방해 챌린지 2장 출현!',
-    });
-  }
-
-  if (newBossHp <= 0) {
-    return {
-      state: {
-        ...state,
-        phase: 'victory',
-        endReason: `${state.boss.name}을(를) ${state.round}라운드 만에 격파했습니다!`,
-      },
-    };
-  }
-
+  state = checkAndApplyPhase2(state);
+  state = applyVictoryIfDead(state);
   return { state };
 }
 
@@ -675,32 +951,62 @@ export function resolveBossCounterPhase(prevState: GameState): GameState {
     (sum, ch) => sum + ch.penaltyDamage,
     0,
   );
-  const rawBossAttack =
-    state.boss.baseCounterAttack + remainingShieldSum + overheatBonus + challengePenalty;
-
-  const absorbed = Math.min(state.teamProtection, rawBossAttack);
-  const netDamage = Math.max(0, rawBossAttack - absorbed);
+  const { raw: rawBossAttack, absorbed, net: netDamage, weakened } =
+    estimateBossCounter(state.boss, state.teamProtection);
   const nextTeamHp = Math.max(0, state.teamHp - netDamage);
+
+  const { intent } = state.boss;
+  const nextShieldBonus =
+    intent.shieldRegen > 0
+      ? {
+          red: state.boss.nextShieldBonus.red + intent.shieldRegen,
+          green: state.boss.nextShieldBonus.green + intent.shieldRegen,
+          blue: state.boss.nextShieldBonus.blue + intent.shieldRegen,
+        }
+      : state.boss.nextShieldBonus;
+
+  let nextChallenges = state.boss.challenges;
+  if (intent.spawnChallenge && nextChallenges.length < 3) {
+    nextChallenges = [
+      ...nextChallenges,
+      {
+        id: `CH_VOID_DRAIN_${state.round}`,
+        name: '공허 침식 균열',
+        requiredColor: 'green',
+        penaltyDamage: 2,
+        description: '초록 카드로 제거 필요 (미제거 시 반격 페이즈 팀 체력 -2)',
+      },
+    ];
+  }
 
   state = {
     ...state,
     phase: nextTeamHp <= 0 ? 'defeat' : 'boss_counter',
     teamHp: nextTeamHp,
     teamProtection: 0,
+    boss: {
+      ...state.boss,
+      nextShieldBonus,
+      challenges: nextChallenges,
+    },
     logs: [
       {
         id: state.nextEventId,
         round: state.round,
         qrCode: 'BOSS_COUNTER',
-        cardName: `${state.boss.name} 반격`,
+        cardName: `${state.boss.name} [${intent.title}]`,
         playerName: '보스 AI',
         resolvedColor: 'red' as const,
         isBoost: false,
         damageDealt: netDamage,
         shieldBroken: false,
         note: `총공격 ${rawBossAttack} (잔여보호막 ${remainingShieldSum} + 기본 ${state.boss.baseCounterAttack}${
-          overheatBonus > 0 ? ` + 과열 ${overheatBonus}` : ''
-        }${challengePenalty > 0 ? ` + 챌린지 ${challengePenalty}` : ''}) · 보호 ${absorbed} 차감 → 팀 -${netDamage} HP`,
+          intent.bonusDamage > 0 ? ` + ${intent.title} ${intent.bonusDamage}` : ''
+        }${overheatBonus > 0 ? ` + 과열 ${overheatBonus}` : ''}${
+          challengePenalty > 0 ? ` + 챌린지 ${challengePenalty}` : ''
+        }${weakened > 0 ? ` - 균열 ${weakened}` : ''}) · 보호 ${absorbed} 차감${
+          intent.pierceGuard > 0 ? ` (관통 ${intent.pierceGuard})` : ''
+        } → 팀 -${netDamage} HP`,
       },
       ...state.logs,
     ].slice(0, 30),
@@ -714,8 +1020,8 @@ export function resolveBossCounterPhase(prevState: GameState): GameState {
     amount: netDamage,
     label:
       netDamage > 0
-        ? `보스 반격! 팀 체력 -${netDamage} (보호 ${absorbed} 흡수)`
-        : `완벽 방어! 보스 공격 ${rawBossAttack} 전량 흡수`,
+        ? `[${intent.title}] 팀 체력 -${netDamage} (보호 ${absorbed} 흡수)`
+        : `완벽 방어! [${intent.title}] ${rawBossAttack} 전량 흡수`,
   });
 
   return state;
@@ -833,6 +1139,11 @@ export function startNextRound(prevState: GameState): GameState {
     green: tpl.baseShields.green + prevState.boss.nextShieldBonus.green,
     blue: tpl.baseShields.blue + prevState.boss.nextShieldBonus.blue,
   };
+  const nextIntent = createBossIntent(
+    prevState.boss.id,
+    nextRound,
+    prevState.boss.phase,
+  );
 
   let state: GameState = {
     ...prevState,
@@ -858,17 +1169,20 @@ export function startNextRound(prevState: GameState): GameState {
       isOverheated: false,
       overheatedColor: null,
       invulnerable: prevState.boss.id === 'kalos_prime',
+      primedElement: null,
+      counterWeakened: 0,
+      intent: nextIntent,
       nextIntentText:
         prevState.boss.id === 'kalos_prime'
-          ? '무적 결계 재전개 · 파랑 플라스크 파쇄로 랜턴 충전'
-          : `보호막 R${nextShields.red} / G${nextShields.green} / B${nextShields.blue} 전개`,
+          ? `무적 결계 재전개 · [${nextIntent.title}] ${nextIntent.description}`
+          : `[${nextIntent.title}] ${nextIntent.description} (R${nextShields.red}/G${nextShields.green}/B${nextShields.blue})`,
     },
   };
 
   state = pushEvent(state, {
     kind: 'boss_enrage',
     color: prevState.boss.id === 'kalos_prime' ? 'void' : 'red',
-    label: `${nextRound}라운드 시작 · 보스 태세 전개!`,
+    label: `${nextRound}라운드 시작 · [${nextIntent.title}] 전개!`,
   });
 
   return state;

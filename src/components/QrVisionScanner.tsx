@@ -43,6 +43,7 @@ export function QrVisionScanner({
   onScanRef.current = onScan;
 
   const [cameraActive, setCameraActive] = useState(true);
+  const [cameraRetryTick, setCameraRetryTick] = useState(0);
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('user');
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [motionEnergy, setMotionEnergy] = useState(0);
@@ -254,7 +255,7 @@ export function QrVisionScanner({
       }
       prevLumaRef.current = null;
     };
-  }, [cameraActive, facingMode, handleDetectedCode]);
+  }, [cameraActive, cameraRetryTick, facingMode, handleDetectedCode]);
 
   const motionRingScale = 1 + motionEnergy * 0.14;
 
@@ -321,7 +322,40 @@ export function QrVisionScanner({
           </>
         ) : (
           <div className="camera-fallback">
-            <p>{cameraError ?? '카메라가 일시 정지되었습니다.'}</p>
+            <p className="camera-fallback-msg">
+              {cameraError ?? '카메라가 일시 정지되었습니다.'}
+            </p>
+            <div className="camera-fallback-actions">
+              <button
+                type="button"
+                className="fallback-btn fallback-btn-primary"
+                disabled={disabled || aiBusy}
+                onClick={() => fileInputRef.current?.click()}
+              >
+                <ImagePlus size={14} />
+                사진 업로드
+              </button>
+              <button
+                type="button"
+                className="fallback-btn fallback-btn-accent"
+                onClick={onOpenTestDeck}
+              >
+                <Sparkles size={14} />
+                테스트 덱 열기
+              </button>
+              <button
+                type="button"
+                className="fallback-btn"
+                onClick={() => {
+                  setCameraError(null);
+                  setCameraActive(true);
+                  setCameraRetryTick((n) => n + 1);
+                }}
+              >
+                <Camera size={14} />
+                {cameraError ? '재시도' : '카메라 켜기'}
+              </button>
+            </div>
           </div>
         )}
 

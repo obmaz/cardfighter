@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   Bot,
   Flame,
@@ -20,10 +20,12 @@ import {
   commitCurrentChain,
   createInitialGameState,
   declareExhaustion,
+  estimateBossCounter,
   proceedToMaintenance,
   resolveBossCounterPhase,
   scanCard,
   startNextRound,
+  triggerSynergyUltimate,
 } from './engine/combatEngine';
 import {
   analyzeCardWithAI,
@@ -74,6 +76,10 @@ export function App() {
     text: string;
     isError?: boolean;
   } | null>(null);
+
+  useEffect(() => {
+    document.title = 'AETHERIA: 비전 보스 레이드';
+  }, []);
 
   const handleSaveAiConfig = (next: AiAgentConfig) => {
     saveAiConfig(next);
@@ -161,6 +167,18 @@ export function App() {
     [],
   );
 
+  const handleTriggerSynergy = () => {
+    setGame((prev) => {
+      const res = triggerSynergyUltimate(prev);
+      if (res.error) {
+        setScanStatus({ text: res.error, isError: true });
+      } else {
+        setScanStatus({ text: '성좌 공명 발동! 보스에게 관통 피해 & 팀 방어 +3' });
+      }
+      return res.state;
+    });
+  };
+
   const handleColorPick = (color: BaseColor) => {
     const pending = game.pendingColorChoice;
     if (!pending) return;
@@ -170,27 +188,30 @@ export function App() {
   const bossTpl = BOSS_TEMPLATES[game.boss.id];
   const bossHpPct = Math.max(0, Math.round((game.boss.hp / game.boss.maxHp) * 100));
   const teamHpPct = Math.max(0, Math.round((game.teamHp / game.maxTeamHp) * 100));
-
-  const remainingShieldSum =
-    game.boss.shields.red + game.boss.shields.green + game.boss.shields.blue;
-  const estimatedCounter =
-    game.boss.baseCounterAttack +
-    remainingShieldSum +
-    (game.boss.isOverheated ? 2 : 0) +
-    game.boss.challenges.reduce((s, c) => s + c.penaltyDamage, 0);
-  const netEstimatedCounter = Math.max(0, estimatedCounter - game.teamProtection);
+  const counterEst = estimateBossCounter(game.boss, game.teamProtection);
+  const synergyReady = game.synergyGauge >= 100;
 
   return (
     <div className="raid-shell">
       {/* SLIM TOP HUD */}
       <header className="top-bar">
+        <div className="brand-badge" title="AETHERIA: 비전 보스 레이드">
+          <span className="brand-title">AETHERIA</span>
+          <small className="brand-sub">비전 보스 레이드</small>
+        </div>
+
         <div className="boss-header-info">
           <div className="boss-title-row">
             <span className="boss-name">{game.boss.name}</span>
-            <span className="boss-sub">{game.boss.subtitle}</span>
+            <span className="boss-sub">
+              {game.boss.phase === 2 ? bossTpl.phase2Title : game.boss.subtitle}
+            </span>
           </div>
           <div className="boss-hp-track">
-            <div className="boss-hp-fill" style={{ width: `${bossHpPct}%` }} />
+            <div
+              className={`boss-hp-fill ${game.boss.phase === 2 ? 'phase2-hp' : ''}`}
+              style={{ width: `${bossHpPct}%` }}
+            />
             <span className="boss-hp-text">
               {game.boss.hp} / {game.boss.maxHp} HP
             </span>
@@ -198,6 +219,9 @@ export function App() {
         </div>
 
         <div className="round-phase-cluster">
+          {game.boss.phase === 2 && (
+            <div className="phase2-pill">PHASE 2</div>
+          )}
           <div className="round-pill">
             R<strong>{game.round}</strong>/{game.maxRounds}
           </div>
@@ -269,30 +293,56 @@ export function App() {
 
         {/* SLIM TACTICAL HUD RAIL */}
         <aside className="hud-rail">
+          {game.lastReaction && (
+            <section
+              key={game.lastReaction.id}
+              className={`hud-block reaction-banner reaction-${game.lastReaction.kind}`}
+            >
+              <div className="reaction-head">
+                <Sparkles size={13} />
+                <strong>원소 반응 · {game.lastReaction.title}</strong>
+              </div>
+              <span className="reaction-detail">{game.lastReaction.detail}</span>
+            </section>
+          )}
+
           {game.lastAiAction && (
             <section className="hud-block ai-callout-block">
               <div className="hud-label">
-                <Bot size={14} className="accent-amber" /> AI 에이전트: {game.lastAiAction.cardName}
+                <Bot size={14} className="accent-amber" /> AI: {game.lastAiAction.cardName}
               </div>
               <p className="ai-battle-cry">“{game.lastAiAction.battleCry}”</p>
+              {game.lastAiAction.reactionHint && (
+                <span className="ai-reaction-hint">{game.lastAiAction.reactionHint}</span>
+              )}
             </section>
           )}
-          {/* Next Boss Attack */}
+
+          {/* Next Boss Intent & Counter Forecast */}
           <section className="hud-block intent-block">
-            <div className="hud-label">
-              <Swords size={14} /> 다음 보스 반격
+            <div className="hud-head-row">
+              <span className="hud-label">
+                <Swords size={14} /> {game.boss.intent.title}
+              </span>
+              {counterEst.weakened > 0 && (
+                <span className="intent-tag-weaken">-균열 {counterEst.weakened}</span>
+              )}
             </div>
             <div className="intent-number-row">
-              <span className="intent-dmg">{netEstimatedCounter}</span>
+              <span className="intent-dmg">{counterEst.net}</span>
               <span className="intent-sub">
-                총 {estimatedCounter} - 방어 {game.teamProtection}
+                예상 {counterEst.raw} · 방어 -{counterEst.absorbed}
+                {game.boss.intent.pierceGuard > 0
+                  ? ` (관통 ${game.boss.intent.pierceGuard})`
+                  : ''}
               </span>
             </div>
+            <p className="intent-desc">{game.boss.intent.description}</p>
             {game.boss.challenges.length > 0 && (
               <div className="challenge-chips">
                 {game.boss.challenges.map((ch) => (
                   <span key={ch.id} className="challenge-pill">
-                    <Zap size={11} /> {ch.name} (초록으로 제거)
+                    <Zap size={11} /> {ch.name} ({COLOR_KO[ch.requiredColor]}으로 제거)
                   </span>
                 ))}
               </div>
@@ -426,6 +476,41 @@ export function App() {
           ))}
         </div>
 
+        {/* SYNERGY ULTIMATE METER / BUTTON */}
+        <div className="synergy-box">
+          {synergyReady ? (
+            <button
+              type="button"
+              className="btn-synergy-ult"
+              disabled={game.phase !== 'coop_turn'}
+              onClick={handleTriggerSynergy}
+              title={
+                game.phase === 'coop_turn'
+                  ? '무적 결계 관통 10 피해 + 팀 방어 +3'
+                  : '협력 턴에 발동 가능'
+              }
+            >
+              <Sparkles size={15} />
+              성좌 공명 발동!
+            </button>
+          ) : (
+            <div className="synergy-meter-card">
+              <div className="synergy-meter-head">
+                <span>
+                  <Sparkles size={12} /> 합동 궁극기
+                </span>
+                <strong>{game.synergyGauge}%</strong>
+              </div>
+              <div className="synergy-track">
+                <div
+                  className="synergy-fill"
+                  style={{ width: `${Math.min(100, game.synergyGauge)}%` }}
+                />
+              </div>
+            </div>
+          )}
+        </div>
+
         <div className="phase-cta-box">
           {game.phase === 'coop_turn' && (
             <button
@@ -496,6 +581,7 @@ export function App() {
       {helpOpen && (
         <div className="modal-backdrop" onClick={() => setHelpOpen(false)}>
           <div className="choice-modal" onClick={(e) => e.stopPropagation()}>
+            <span className="modal-eyebrow">AETHERIA · 비전 보스 레이드</span>
             <h3>
               {game.boss.name} · {game.boss.subtitle}
             </h3>
@@ -519,6 +605,7 @@ export function App() {
       {(game.phase === 'victory' || game.phase === 'defeat') && (
         <div className="modal-backdrop">
           <div className={`result-modal result-${game.phase}`}>
+            <span className="modal-eyebrow">AETHERIA · 비전 보스 레이드</span>
             <h2>{game.phase === 'victory' ? '레이드 승리!' : '레이드 패배'}</h2>
             <p>{game.endReason}</p>
             <div className="result-actions">
@@ -545,6 +632,7 @@ export function App() {
       {setupOpen && (
         <div className="modal-backdrop" onClick={() => setSetupOpen(false)}>
           <div className="setup-modal" onClick={(e) => e.stopPropagation()}>
+            <span className="modal-eyebrow">AETHERIA · 비전 보스 레이드</span>
             <h3>보스 및 덱 편성</h3>
             <div className="setup-group">
               <label>보스 선택</label>

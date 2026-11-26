@@ -89,6 +89,27 @@ class SoundEngine {
     this.playTone(680, 840, 0.07, 'sine', 0.1, 0.12);
   }
 
+  public playElementalReaction(color: BaseColor | 'lantern' | 'void') {
+    const base = color === 'red' ? 330 : color === 'green' ? 392 : 440;
+    this.playTone(base, base * 1.5, 0.22, 'triangle', 0.18, 0);
+    this.playTone(base * 1.25, base * 2, 0.26, 'sine', 0.16, 0.05);
+    this.playTone(base * 0.5, base * 0.75, 0.24, 'sawtooth', 0.1, 0.02);
+  }
+
+  public playSynergyUltimate() {
+    this.playTone(110, 55, 0.55, 'sawtooth', 0.2, 0);
+    this.playTone(392, 523, 0.22, 'triangle', 0.16, 0.02);
+    this.playTone(523, 659, 0.24, 'triangle', 0.16, 0.09);
+    this.playTone(659, 1046, 0.42, 'sine', 0.2, 0.16);
+    this.playTone(784, 1568, 0.45, 'sine', 0.14, 0.22);
+  }
+
+  public playPhaseTwo() {
+    this.playTone(155, 48, 0.55, 'sawtooth', 0.24, 0);
+    this.playTone(233, 72, 0.5, 'square', 0.14, 0.04);
+    this.playTone(622, 466, 0.3, 'triangle', 0.15, 0.12);
+  }
+
   public playEffect(ev: CombatEffectEvent) {
     switch (ev.kind) {
       case 'card_hit':
@@ -123,6 +144,15 @@ class SoundEngine {
         break;
       case 'challenge_clear':
         this.playTone(523, 784, 0.2, 'sine', 0.14);
+        break;
+      case 'elemental_reaction':
+        this.playElementalReaction(ev.color);
+        break;
+      case 'synergy_ultimate':
+        this.playSynergyUltimate();
+        break;
+      case 'phase_two':
+        this.playPhaseTwo();
         break;
     }
   }

@@ -1,6 +1,21 @@
 import { useEffect, useRef } from 'react';
-import { Application, Container, Graphics, Text, TextStyle } from 'pixi.js';
-import type { BaseColor, BossState, CombatEffectEvent, DiceRollSummary } from '../types/game';
+import {
+  Application,
+  Assets,
+  Container,
+  Graphics,
+  Sprite,
+  Text,
+  TextStyle,
+  type Texture,
+} from 'pixi.js';
+import type {
+  BaseColor,
+  BossId,
+  BossState,
+  CombatEffectEvent,
+  DiceRollSummary,
+} from '../types/game';
 import { sfx } from '../audio/sfx';
 
 interface BossViewportPixiProps {
@@ -47,6 +62,40 @@ const DICE_COLOR_BADGE: Record<string, { label: string; cls: string }> = {
   wild: { label: '별빛 +2', cls: 'die-wild' },
   blank: { label: '공백 +0', cls: 'die-blank' },
 };
+
+const PRIMER_META: Record<BaseColor, { title: string; comboHint: string; cls: string }> = {
+  red: {
+    title: '불꽃 대기',
+    comboHint: '+파랑=융해 · +초록=파쇄',
+    cls: 'primer-red',
+  },
+  green: {
+    title: '기교 대기',
+    comboHint: '+빨강=파쇄 · +파랑=균열',
+    cls: 'primer-green',
+  },
+  blue: {
+    title: '지혜 대기',
+    comboHint: '+빨강=융해 · +초록=균열',
+    cls: 'primer-blue',
+  },
+};
+
+function getReactionHues(ev: CombatEffectEvent): [number, number] {
+  if (ev.label.includes('융해')) return [COLOR_HEX.red, COLOR_HEX.blue];
+  if (ev.label.includes('균열')) return [COLOR_HEX.blue, COLOR_HEX.green];
+  if (ev.label.includes('파쇄')) return [COLOR_HEX.red, COLOR_HEX.green];
+  return [COLOR_HEX[ev.color] ?? 0xffffff, COLOR_HEX.lantern];
+}
+
+async function tryLoadTexture(url: string): Promise<Texture | null> {
+  try {
+    const tex = await Assets.load<Texture>(url);
+    return tex ?? null;
+  } catch {
+    return null;
+  }
+}
 
 export function BossViewportPixi({
   boss,
@@ -108,18 +157,59 @@ export function BossViewportPixi({
       app.canvas.style.display = 'block';
 
       const world = new Container();
+      const backdropLayer = new Container();
       const bgLayer = new Graphics();
       const bossLayer = new Container();
+      const phase2Aura = new Graphics();
       const gearOuter = new Graphics();
       const gearInner = new Graphics();
       const bossBody = new Graphics();
+      const bossArtHolder = new Container();
+      const bossMask = new Graphics();
+      bossMask.circle(0, 0, 44).fill({ color: 0xffffff });
+      bossArtHolder.mask = bossMask;
+      const bossFlashOverlay = new Graphics();
+      bossFlashOverlay.circle(0, 0, 44).fill({ color: 0xffffff, alpha: 0.72 });
+      bossFlashOverlay.visible = false;
       const barrierGfx = new Graphics();
       const fxLayer = new Container();
       const labelLayer = new Container();
 
-      bossLayer.addChild(gearOuter, gearInner, bossBody, barrierGfx);
-      world.addChild(bgLayer, bossLayer, fxLayer, labelLayer);
+      bossLayer.addChild(
+        phase2Aura,
+        gearOuter,
+        gearInner,
+        bossBody,
+        bossMask,
+        bossArtHolder,
+        bossFlashOverlay,
+        barrierGfx,
+      );
+      world.addChild(backdropLayer, bgLayer, bossLayer, fxLayer, labelLayer);
       app.stage.addChild(world);
+
+      let arenaBgSprite: Sprite | null = null;
+      const bossTextures: Partial<Record<BossId, Texture>> = {};
+      let activeSpriteBossId: BossId | null = null;
+      let activeBossSprite: Sprite | null = null;
+
+      // Load optional /assets/*.jpg artwork gracefully without blocking canvas init
+      void Promise.all([
+        tryLoadTexture('/assets/arena_bg.jpg'),
+        tryLoadTexture('/assets/vainglory_core.jpg'),
+        tryLoadTexture('/assets/kalos_prime.jpg'),
+      ]).then(([bgTex, vainTex, kalosTex]) => {
+        if (destroyed) return;
+        if (bgTex) {
+          arenaBgSprite = new Sprite(bgTex);
+          arenaBgSprite.anchor.set(0.5);
+          arenaBgSprite.alpha = 0.38;
+          arenaBgSprite.tint = 0x94a3b8;
+          backdropLayer.addChild(arenaBgSprite);
+        }
+        if (vainTex) bossTextures.vainglory_core = vainTex;
+        if (kalosTex) bossTextures.kalos_prime = kalosTex;
+      });
 
       const spawnParticles = (
         cx: number,
@@ -153,6 +243,7 @@ export function BossViewportPixi({
         cy: number,
         hex: number,
         kind: CombatEffectEvent['kind'],
+        secondaryHex?: number,
       ) => {
         const g = new Graphics();
         g.x = cx;
@@ -162,6 +253,25 @@ export function BossViewportPixi({
           g.rect(-24, -220, 48, 440).fill({ color: 0xfef08a, alpha: 0.9 });
           g.rect(-56, -220, 112, 440).fill({ color: hex, alpha: 0.35 });
           g.circle(0, 0, 68).stroke({ width: 5, color: 0xffffff, alpha: 0.95 });
+        } else if (kind === 'elemental_reaction') {
+          const hue2 = secondaryHex ?? 0xfbbf24;
+          g.circle(0, 0, 46).stroke({ width: 6, color: hex, alpha: 0.95 });
+          g.circle(0, 0, 64).stroke({ width: 5, color: hue2, alpha: 0.9 });
+          g.circle(0, 0, 26).fill({ color: 0xffffff, alpha: 0.35 });
+        } else if (kind === 'synergy_ultimate') {
+          for (let i = 0; i < 12; i++) {
+            const a = (i / 12) * Math.PI * 2;
+            const rayColor = i % 3 === 0 ? 0xfbbf24 : i % 3 === 1 ? 0x38bdf8 : 0xf472b6;
+            g.moveTo(0, 0)
+              .lineTo(Math.cos(a) * 140, Math.sin(a) * 140)
+              .stroke({ width: 5, color: rayColor, alpha: 0.9 });
+          }
+          g.circle(0, 0, 56).stroke({ width: 6, color: 0xfef08a, alpha: 0.95 });
+          g.circle(0, 0, 82).stroke({ width: 4, color: 0x38bdf8, alpha: 0.85 });
+        } else if (kind === 'phase_two') {
+          g.circle(0, 0, 58).fill({ color: hex, alpha: 0.28 });
+          g.circle(0, 0, 70).stroke({ width: 7, color: hex, alpha: 0.95 });
+          g.circle(0, 0, 92).stroke({ width: 4, color: 0xfef08a, alpha: 0.8 });
         } else if (kind === 'shield_break' || kind === 'boss_unstable') {
           g.circle(0, 0, 52).stroke({ width: 6, color: hex, alpha: 0.95 });
           g.circle(0, 0, 32).stroke({ width: 3, color: 0xffffff, alpha: 0.85 });
@@ -180,19 +290,38 @@ export function BossViewportPixi({
             .stroke({ width: 5, color: hex, alpha: 0.95 });
         }
 
+        const life =
+          kind === 'lantern_beam' || kind === 'synergy_ultimate'
+            ? 0.62
+            : kind === 'elemental_reaction' || kind === 'phase_two'
+              ? 0.48
+              : 0.32;
+        const expandSpeed =
+          kind === 'synergy_ultimate'
+            ? 2.8
+            : kind === 'elemental_reaction' || kind === 'phase_two' || kind === 'shield_break'
+              ? 3.2
+              : 1.4;
+
         fxLayer.addChild(g);
         slashes.push({
           gfx: g,
-          life: kind === 'lantern_beam' ? 0.55 : 0.32,
-          maxLife: kind === 'lantern_beam' ? 0.55 : 0.32,
-          expandSpeed: kind === 'shield_break' ? 3.2 : 1.4,
+          life,
+          maxLife: life,
+          expandSpeed,
         });
       };
 
-      const spawnFloater = (cx: number, cy: number, textStr: string, hex: number) => {
+      const spawnFloater = (
+        cx: number,
+        cy: number,
+        textStr: string,
+        hex: number,
+        fontSize = 18,
+      ) => {
         const style = new TextStyle({
           fontFamily: 'Pretendard, Inter, system-ui, sans-serif',
-          fontSize: 18,
+          fontSize,
           fontWeight: '800',
           fill: hex,
           stroke: { color: 0x090d16, width: 4 },
@@ -211,19 +340,60 @@ export function BossViewportPixi({
         floaters.push({
           text: txt,
           vy: -52,
-          life: 1.15,
-          maxLife: 1.15,
+          life: 1.25,
+          maxLife: 1.25,
         });
       };
 
       const drawBoss = (w: number, h: number, b: BossState) => {
         const cx = w * 0.5;
         const cy = h * 0.48;
+        const isPhase2 = b.phase === 2;
+        const speedMult = isPhase2 ? 1.85 : 1;
+
+        if (arenaBgSprite) {
+          const texW = arenaBgSprite.texture.width || 1;
+          const texH = arenaBgSprite.texture.height || 1;
+          const scale = Math.max(w / texW, h / texH);
+          arenaBgSprite.x = w * 0.5;
+          arenaBgSprite.y = h * 0.5;
+          arenaBgSprite.scale.set(scale);
+          arenaBgSprite.tint = isPhase2
+            ? b.id === 'kalos_prime'
+              ? 0xa855f7
+              : 0xfca5a5
+            : 0x94a3b8;
+        }
+
+        // Sync optional boss portrait sprite inside circular medallion
+        const tex = bossTextures[b.id];
+        if (tex && activeSpriteBossId !== b.id) {
+          bossArtHolder.removeChildren().forEach((c) => c.destroy());
+          const spr = new Sprite(tex);
+          spr.anchor.set(0.5);
+          const scale = 96 / Math.min(tex.width || 96, tex.height || 96);
+          spr.scale.set(scale);
+          bossArtHolder.addChild(spr);
+          activeBossSprite = spr;
+          activeSpriteBossId = b.id;
+        }
+        if (activeBossSprite) {
+          activeBossSprite.tint = isPhase2
+            ? b.id === 'kalos_prime'
+              ? 0xe9d5ff
+              : 0xffd1c1
+            : 0xffffff;
+        }
+        const hasSprite = Boolean(activeBossSprite);
+        bossFlashOverlay.visible = flashTimer > 0;
 
         // Arena radial floor glow
         bgLayer.clear();
-        const auraHex =
-          b.id === 'kalos_prime'
+        const auraHex = isPhase2
+          ? b.id === 'kalos_prime'
+            ? 0xa855f7
+            : 0xef4444
+          : b.id === 'kalos_prime'
             ? 0x7e22ce
             : b.isOverheated
               ? 0xef4444
@@ -231,23 +401,40 @@ export function BossViewportPixi({
                 ? 0x38bdf8
                 : 0xd97706;
 
-        bgLayer.ellipse(cx, cy + 72, 145, 30).fill({ color: auraHex, alpha: 0.16 });
-        bgLayer.ellipse(cx, cy + 72, 96, 18).stroke({
-          width: 1.5,
+        bgLayer.ellipse(cx, cy + 74, 155, 32).fill({
           color: auraHex,
-          alpha: 0.45,
+          alpha: isPhase2 ? 0.26 : 0.16,
+        });
+        bgLayer.ellipse(cx, cy + 74, 102, 20).stroke({
+          width: isPhase2 ? 2.5 : 1.5,
+          color: auraHex,
+          alpha: isPhase2 ? 0.72 : 0.45,
         });
 
         bossLayer.x = cx + (Math.random() - 0.5) * bossRecoil * 12;
-        bossLayer.y = cy + Math.sin(elapsed * 2.4) * 5;
+        bossLayer.y = cy + Math.sin(elapsed * (isPhase2 ? 3.8 : 2.4)) * 5;
 
+        phase2Aura.clear();
         gearOuter.clear();
         gearInner.clear();
         bossBody.clear();
         barrierGfx.clear();
 
+        if (isPhase2) {
+          const pulseR = 78 + Math.sin(elapsed * 6) * 6;
+          const p2Color = b.id === 'kalos_prime' ? 0xc084fc : 0xff4d4f;
+          phase2Aura.circle(0, 0, pulseR).stroke({
+            width: 3,
+            color: p2Color,
+            alpha: 0.55 + Math.sin(elapsed * 6) * 0.2,
+          });
+          phase2Aura.circle(0, 0, pulseR - 10).fill({
+            color: p2Color,
+            alpha: 0.1,
+          });
+        }
+
         if (b.id === 'vainglory_core') {
-          // Outer rotating clockwork teeth
           const teeth = 12;
           for (let i = 0; i < teeth; i++) {
             const a = (i / teeth) * Math.PI * 2;
@@ -257,22 +444,21 @@ export function BossViewportPixi({
             const y2 = Math.sin(a) * 80;
             gearOuter.moveTo(x1, y1).lineTo(x2, y2).stroke({
               width: 8,
-              color: b.isOverheated ? 0xf97316 : 0xb45309,
-              alpha: 0.85,
+              color: b.isOverheated || isPhase2 ? 0xf97316 : 0xb45309,
+              alpha: 0.9,
             });
           }
           gearOuter.circle(0, 0, 66).stroke({
             width: 5,
-            color: 0xf59e0b,
-            alpha: 0.75,
+            color: isPhase2 ? 0xff4d4f : 0xf59e0b,
+            alpha: 0.85,
           });
-          gearOuter.rotation = elapsed * (b.isOverheated ? 1.1 : 0.4);
+          gearOuter.rotation = elapsed * (b.isOverheated ? 1.1 : 0.4) * speedMult;
 
-          // Inner counter-rotating ring
           gearInner.circle(0, 0, 48).stroke({
             width: 3,
-            color: b.isUnstable ? 0x38bdf8 : 0xfde68a,
-            alpha: 0.8,
+            color: b.isUnstable ? 0x38bdf8 : isPhase2 ? 0xfca5a5 : 0xfde68a,
+            alpha: 0.88,
           });
           for (let i = 0; i < 6; i++) {
             const a = (i / 6) * Math.PI * 2;
@@ -280,42 +466,48 @@ export function BossViewportPixi({
               .circle(Math.cos(a) * 48, Math.sin(a) * 48, 4)
               .fill({ color: 0xfef3c7 });
           }
-          gearInner.rotation = -elapsed * 0.65;
+          gearInner.rotation = -elapsed * 0.65 * speedMult;
 
-          // Golem core crystal
-          const coreColor =
-            flashTimer > 0
-              ? 0xffffff
-              : b.isOverheated
-                ? 0xff4d4f
-                : b.isUnstable
-                  ? 0x38bdf8
-                  : 0xf59e0b;
+          if (!hasSprite) {
+            const coreColor =
+              flashTimer > 0
+                ? 0xffffff
+                : b.isOverheated || isPhase2
+                  ? 0xff4d4f
+                  : b.isUnstable
+                    ? 0x38bdf8
+                    : 0xf59e0b;
 
-          bossBody
-            .moveTo(0, -40)
-            .lineTo(32, -10)
-            .lineTo(24, 34)
-            .lineTo(-24, 34)
-            .lineTo(-32, -10)
-            .closePath()
-            .fill({ color: 0x1e293b, alpha: 0.96 })
-            .stroke({ width: 3, color: coreColor });
+            bossBody
+              .moveTo(0, -40)
+              .lineTo(32, -10)
+              .lineTo(24, 34)
+              .lineTo(-24, 34)
+              .lineTo(-32, -10)
+              .closePath()
+              .fill({ color: 0x1e293b, alpha: 0.96 })
+              .stroke({ width: 3, color: coreColor });
 
-          bossBody
-            .circle(0, 0, 16 + Math.sin(elapsed * 5) * 2)
-            .fill({ color: coreColor, alpha: 0.9 });
-          bossBody.circle(0, 0, 7).fill({ color: 0xffffff, alpha: 0.95 });
+            bossBody
+              .circle(0, 0, 16 + Math.sin(elapsed * 5) * 2)
+              .fill({ color: coreColor, alpha: 0.9 });
+            bossBody.circle(0, 0, 7).fill({ color: 0xffffff, alpha: 0.95 });
+          } else {
+            bossBody.circle(0, 0, 45).stroke({
+              width: 3,
+              color: isPhase2 ? 0xff4d4f : 0xf59e0b,
+              alpha: 0.9,
+            });
+          }
         } else {
           // Kalos Prime: Void Alchemist
           gearOuter.circle(0, 0, 74).stroke({
             width: 2,
-            color: 0xa855f7,
-            alpha: 0.55,
+            color: isPhase2 ? 0xe879f9 : 0xa855f7,
+            alpha: 0.65,
           });
-          // 3 Orbiting Flasks / Void Orbs
           for (let i = 0; i < 3; i++) {
-            const a = elapsed * 0.9 + (i * Math.PI * 2) / 3;
+            const a = elapsed * 0.9 * speedMult + (i * Math.PI * 2) / 3;
             const ox = Math.cos(a) * 74;
             const oy = Math.sin(a) * 52;
             const isFilled = i < b.voidGauge;
@@ -325,34 +517,40 @@ export function BossViewportPixi({
               .stroke({ width: 2, color: 0x38bdf8 });
           }
 
-          // Hooded alchemist silhouette
-          const bodyGlow = flashTimer > 0 ? 0xffffff : 0xa855f7;
-          bossBody
-            .moveTo(0, -46)
-            .lineTo(36, 26)
-            .lineTo(0, 42)
-            .lineTo(-36, 26)
-            .closePath()
-            .fill({ color: 0x17153b, alpha: 0.96 })
-            .stroke({ width: 3, color: bodyGlow });
+          if (!hasSprite) {
+            const bodyGlow = flashTimer > 0 ? 0xffffff : isPhase2 ? 0xe879f9 : 0xa855f7;
+            bossBody
+              .moveTo(0, -46)
+              .lineTo(36, 26)
+              .lineTo(0, 42)
+              .lineTo(-36, 26)
+              .closePath()
+              .fill({ color: 0x17153b, alpha: 0.96 })
+              .stroke({ width: 3, color: bodyGlow });
 
-          bossBody
-            .circle(-10, -8, 4.5)
-            .fill({ color: 0x38bdf8 })
-            .circle(10, -8, 4.5)
-            .fill({ color: 0x38bdf8 });
+            bossBody
+              .circle(-10, -8, 4.5)
+              .fill({ color: 0x38bdf8 })
+              .circle(10, -8, 4.5)
+              .fill({ color: 0x38bdf8 });
+          } else {
+            bossBody.circle(0, 0, 45).stroke({
+              width: 3,
+              color: isPhase2 ? 0xe879f9 : 0xa855f7,
+              alpha: 0.9,
+            });
+          }
 
-          // Invulnerability Hex Barrier
           if (b.invulnerable) {
             for (let i = 0; i < 6; i++) {
-              const a1 = (i / 6) * Math.PI * 2 + elapsed * 0.25;
-              const a2 = ((i + 1) / 6) * Math.PI * 2 + elapsed * 0.25;
+              const a1 = (i / 6) * Math.PI * 2 + elapsed * 0.25 * speedMult;
+              const a2 = ((i + 1) / 6) * Math.PI * 2 + elapsed * 0.25 * speedMult;
               barrierGfx
                 .moveTo(Math.cos(a1) * 62, Math.sin(a1) * 62)
                 .lineTo(Math.cos(a2) * 62, Math.sin(a2) * 62)
-                .stroke({ width: 3, color: 0xc084fc, alpha: 0.78 });
+                .stroke({ width: 3, color: 0xc084fc, alpha: 0.85 });
             }
-            barrierGfx.circle(0, 0, 62).fill({ color: 0xa855f7, alpha: 0.1 });
+            barrierGfx.circle(0, 0, 62).fill({ color: 0xa855f7, alpha: 0.12 });
           }
         }
       };
@@ -379,6 +577,36 @@ export function BossViewportPixi({
             spawnSlash(cx, cy, hex, ev.kind);
             spawnParticles(cx, cy, hex, ev.kind === 'boost_chain' ? 36 : 24, 280);
             spawnFloater(cx, cy, ev.label, hex);
+          } else if (ev.kind === 'elemental_reaction') {
+            const [hue1, hue2] = getReactionHues(ev);
+            shakeTimer = 0.34;
+            shakeStrength = 12;
+            flashTimer = 0.12;
+            bossRecoil = 1.3;
+            spawnSlash(cx, cy, hue1, 'elemental_reaction', hue2);
+            spawnParticles(cx, cy, hue1, 28, 340);
+            spawnParticles(cx, cy, hue2, 28, 340);
+            spawnFloater(cx, cy - 10, ev.label, 0xfef08a, 21);
+          } else if (ev.kind === 'synergy_ultimate') {
+            shakeTimer = 0.5;
+            shakeStrength = 16;
+            flashTimer = 0.18;
+            bossRecoil = 1.8;
+            spawnSlash(cx, cy, 0xfbbf24, 'synergy_ultimate');
+            spawnParticles(cx, cy, 0xfbbf24, 34, 420);
+            spawnParticles(cx, cy, 0x38bdf8, 24, 380);
+            spawnParticles(cx, cy, 0xf472b6, 20, 360);
+            spawnFloater(cx, cy - 14, ev.label, 0xfef08a, 22);
+          } else if (ev.kind === 'phase_two') {
+            const p2Hex = bossRef.current.id === 'kalos_prime' ? 0xc084fc : 0xff4d4f;
+            shakeTimer = 0.55;
+            shakeStrength = 15;
+            flashTimer = 0.16;
+            bossRecoil = 1.4;
+            spawnSlash(cx, cy, p2Hex, 'phase_two');
+            spawnParticles(cx, cy, p2Hex, 44, 360);
+            spawnParticles(cx, cy, 0xfbbf24, 18, 280);
+            spawnFloater(cx, cy - 16, ev.label, 0xfca5a5, 21);
           } else if (ev.kind === 'lantern_beam') {
             shakeTimer = 0.4;
             shakeStrength = 14;
@@ -475,8 +703,10 @@ export function BossViewportPixi({
     };
   }, []);
 
+  const primer = boss.primedElement ? PRIMER_META[boss.primedElement] : null;
+
   return (
-    <div className="boss-viewport">
+    <div className={`boss-viewport ${boss.phase === 2 ? 'viewport-phase2' : ''}`}>
       <div ref={hostRef} className="boss-pixi-canvas" />
 
       {/* Shield Slots Overlay */}
@@ -501,8 +731,22 @@ export function BossViewportPixi({
         />
       </div>
 
-      {/* Boss Badges */}
+      {/* Boss Status & Elemental Primer Overlay */}
       <div className="boss-state-badges">
+        {primer ? (
+          <span className={`primer-pill ${primer.cls}`}>
+            <strong>{primer.title}</strong>
+            <small>{primer.comboHint}</small>
+          </span>
+        ) : (
+          <span className="primer-pill primer-idle">
+            <strong>원소 공명</strong>
+            <small>속성 2종 교차 시 반응</small>
+          </span>
+        )}
+        {boss.phase === 2 && (
+          <span className="status-chip chip-phase2">PHASE 2 · 각성</span>
+        )}
         {boss.invulnerable && (
           <span className="status-chip chip-void">무적 결계</span>
         )}

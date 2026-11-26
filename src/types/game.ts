@@ -1,4 +1,25 @@
+export type RngFn = () => number;
+
 export type BaseColor = 'red' | 'green' | 'blue';
+
+export type ReactionKind = 'melt' | 'chrono' | 'shatter';
+
+export type BossIntentType =
+  | 'counter_stance'
+  | 'heavy_slam'
+  | 'shield_regen'
+  | 'void_drain'
+  | 'abyss_overdrive';
+
+export interface BossIntent {
+  type: BossIntentType;
+  title: string;
+  description: string;
+  bonusDamage: number;
+  shieldRegen: number;
+  spawnChallenge: boolean;
+  pierceGuard: number;
+}
 
 export type CardColor =
   | BaseColor
@@ -114,7 +135,10 @@ export interface CombatEffectEvent {
     | 'blocked'
     | 'exhaustion'
     | 'dice_roll'
-    | 'challenge_clear';
+    | 'challenge_clear'
+    | 'elemental_reaction'
+    | 'synergy_ultimate'
+    | 'phase_two';
   color: BaseColor | 'lantern' | 'void';
   amount?: number;
   label: string;
@@ -138,6 +162,11 @@ export interface BossState {
   challenges: ChallengeCard[];
   nextIntentText: string;
   baseCounterAttack: number;
+  phase: 1 | 2;
+  phase2Triggered: boolean;
+  primedElement: BaseColor | null;
+  counterWeakened: number;
+  intent: BossIntent;
 }
 
 export interface AiCardAction {
@@ -149,12 +178,21 @@ export interface AiCardAction {
   disruptChallenge: boolean;
   specialNote: string;
   battleCry: string;
+  reactionHint?: string;
+  recommendedRole?: 'breaker' | 'defender' | 'disruptor' | 'burst';
 }
 
 export interface PendingColorChoice {
   qrCode: string;
   card: CardDef;
   allowedColors: BaseColor[];
+}
+
+export interface LastReactionInfo {
+  kind: ReactionKind;
+  title: string;
+  detail: string;
+  id: number;
 }
 
 export interface GameState {
@@ -165,6 +203,8 @@ export interface GameState {
   teamHp: number;
   maxTeamHp: number;
   teamProtection: number;
+  synergyGauge: number;
+  lastReaction: LastReactionInfo | null;
   players: [PlayerState, PlayerState];
   activeChain: ActiveActionChain;
   roundColorCounts: Record<BaseColor, number>;
