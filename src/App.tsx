@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Bot,
   Flame,
@@ -9,6 +9,7 @@ import {
   Shield,
   Sparkles,
   Swords,
+  Trophy,
   Volume2,
   VolumeX,
   Zap,
@@ -30,6 +31,11 @@ import {
   triggerSynergyUltimate,
 } from './engine/combatEngine';
 import {
+  computeRaidGrade,
+  loadRaidCodex,
+  recordVictoryToCodex,
+} from './engine/raidCodex';
+import {
   analyzeCardWithAI,
   isAiConfigured,
   loadAiConfig,
@@ -43,6 +49,7 @@ import { AiSettingsModal } from './components/AiSettingsModal';
 import { sfx } from './audio/sfx';
 import type {
   BaseColor,
+  BossClearRecord,
   BossId,
   GameState,
   RelicId,
@@ -82,6 +89,10 @@ export function App() {
   const [aiSettingsOpen, setAiSettingsOpen] = useState(false);
   const [aiConfig, setAiConfig] = useState<AiAgentConfig>(() => loadAiConfig());
   const [aiBusy, setAiBusy] = useState(false);
+  const [codex, setCodex] = useState<Partial<Record<BossId, BossClearRecord>>>(() =>
+    loadRaidCodex(),
+  );
+  const victoryRecordedRef = useRef(false);
   const [scanStatus, setScanStatus] = useState<{
     text: string;
     isError?: boolean;
@@ -90,6 +101,69 @@ export function App() {
   useEffect(() => {
     document.title = 'AETHERIA: 비전 보스 레이드';
   }, []);
+
+  useEffect(() => {
+    if (game.phase === 'victory' && !victoryRecordedRef.current) {
+      victoryRecordedRef.current = true;
+      setCodex(recordVictoryToCodex(game));
+    }
+  }, [game]);
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (aiSettingsOpen) setAiSettingsOpen(false);
+        else if (drawerOpen) setDrawerOpen(false);
+        else if (helpOpen) setHelpOpen(false);
+        else if (setupOpen) setSetupOpen(false);
+        else if (game.pendingColorChoice) {
+          setGame((g) => clearPendingColorChoice(g));
+        }
+        return;
+      }
+
+      if (e.code === 'Space' && !e.repeat) {
+        if (
+          setupOpen ||
+          helpOpen ||
+          aiSettingsOpen ||
+          drawerOpen ||
+          game.pendingColorChoice
+        ) {
+          return;
+        }
+        const tag = (e.target as HTMLElement | null)?.tagName;
+        if (
+          tag === 'INPUT' ||
+          tag === 'SELECT' ||
+          tag === 'TEXTAREA' ||
+          tag === 'BUTTON'
+        ) {
+          return;
+        }
+        if (game.phase === 'coop_turn') {
+          e.preventDefault();
+          setGame((g) => resolveBossCounterPhase(g));
+        } else if (game.phase === 'boss_counter') {
+          e.preventDefault();
+          setGame((g) => proceedToMaintenance(g));
+        } else if (game.phase === 'maintenance') {
+          e.preventDefault();
+          setGame((g) => startNextRound(g));
+        }
+      }
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [
+    aiSettingsOpen,
+    drawerOpen,
+    helpOpen,
+    setupOpen,
+    game.pendingColorChoice,
+    game.phase,
+  ]);
 
   const handleSaveAiConfig = (next: AiAgentConfig) => {
     saveAiConfig(next);
@@ -146,6 +220,7 @@ export function App() {
     nextP2: SeekerId = p2Seeker,
     nextRelic: RelicId = relicId,
   ) => {
+    victoryRecordedRef.current = false;
     setBossId(nextBoss);
     setP1Seeker(nextP1);
     setP2Seeker(nextP2);
@@ -203,6 +278,11 @@ export function App() {
   const teamHpPct = Math.max(0, Math.round((game.teamHp / game.maxTeamHp) * 100));
   const counterEst = estimateBossCounter(game.boss, game.teamProtection);
   const synergyReady = game.synergyGauge >= 100;
+  const raidGrade =
+    game.phase === 'victory' || game.phase === 'defeat'
+      ? computeRaidGrade(game)
+      : null;
+  const bossRecord = codex[game.boss.id];
 
   return (
     <div className="raid-shell">
@@ -251,11 +331,13 @@ export function App() {
             title="AI 비전 에이전트 연결 설정"
           >
             <Bot size={15} />
-            {aiConfig.mode === 'local'
-              ? '로컬 AI'
-              : aiConfig.mode === 'gemini'
-                ? 'Gemini'
-                : 'OpenAI'}
+            {aiConfig.mode === 'demo'
+              ? '데모 AI'
+              : aiConfig.mode === 'local'
+                ? '로컬 AI'
+                : aiConfig.mode === 'gemini'
+                  ? 'Gemini'
+                  : 'OpenAI'}
           </button>
           <button
             type="button"
@@ -629,12 +711,63 @@ export function App() {
       )}
 
       {/* VICTORY / DEFEAT OVERLAY */}
-      {(game.phase === 'victory' || game.phase === 'defeat') && (
+      {(game.phase === 'victory' || game.phase === 'defeat') && raidGrade && (
         <div className="modal-backdrop">
           <div className={`result-modal result-${game.phase}`}>
             <span className="modal-eyebrow">AETHERIA · 비전 보스 레이드</span>
-            <h2>{game.phase === 'victory' ? '레이드 승리!' : '레이드 패배'}</h2>
-            <p>{game.endReason}</p>
+            <div className="result-header-row">
+              <div>
+                <h2>{game.phase === 'victory' ? '레이드 승리!' : '레이드 패배'}</h2>
+                <p className="result-end-reason">{game.endReason}</p>
+              </div>
+              <div className={`rank-badge rank-${raidGrade.rank}`}>
+                <strong>{raidGrade.rank}</strong>
+                <span>{raidGrade.label}</span>
+                <small>{raidGrade.score}점</small>
+              </div>
+            </div>
+
+            <div className="result-stats-grid">
+              <div className="stat-cell">
+                <small>라운드</small>
+                <strong>
+                  {game.round}/{game.maxRounds}
+                </strong>
+              </div>
+              <div className="stat-cell">
+                <small>팀 체력</small>
+                <strong>
+                  {game.teamHp}/{game.maxTeamHp}
+                </strong>
+              </div>
+              <div className="stat-cell">
+                <small>총 피해</small>
+                <strong>{game.stats.totalDamageDealt}</strong>
+              </div>
+              <div className="stat-cell">
+                <small>원소 반응</small>
+                <strong>{game.stats.reactionsTriggered}</strong>
+              </div>
+              <div className="stat-cell">
+                <small>방패 파쇄</small>
+                <strong>{game.stats.shieldsBroken}</strong>
+              </div>
+              <div className="stat-cell">
+                <small>그로기</small>
+                <strong>{game.boss.staggerCount}</strong>
+              </div>
+            </div>
+
+            {bossRecord && (
+              <div className="codex-record-bar">
+                <Trophy size={13} className="accent-amber" />
+                <span>
+                  {game.boss.name} 코덱스 · {bossRecord.clears}회 토벌 · 최고{' '}
+                  <strong>{bossRecord.bestRank}랭크</strong> ({bossRecord.bestRounds}R)
+                </span>
+              </div>
+            )}
+
             <div className="result-actions">
               <button
                 type="button"
@@ -666,6 +799,7 @@ export function App() {
               <div className="setup-options">
                 {(Object.keys(BOSS_TEMPLATES) as BossId[]).map((id) => {
                   const tpl = BOSS_TEMPLATES[id];
+                  const rec = codex[id];
                   return (
                     <button
                       key={id}
@@ -673,7 +807,14 @@ export function App() {
                       className={`setup-opt ${bossId === id ? 'selected' : ''}`}
                       onClick={() => setBossId(id)}
                     >
-                      <strong>{tpl.name}</strong>
+                      <div className="setup-opt-top">
+                        <strong>{tpl.name}</strong>
+                        {rec && (
+                          <span className="codex-clear-pill">
+                            최고 {rec.bestRank} · {rec.clears}승
+                          </span>
+                        )}
+                      </div>
                       <span>
                         {tpl.subtitle} · {tpl.maxHp} HP
                       </span>

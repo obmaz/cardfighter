@@ -1,6 +1,6 @@
 import type { AiCardAction, BaseColor, BossState } from '../types/game';
 
-export type AiProviderMode = 'local' | 'gemini' | 'openai';
+export type AiProviderMode = 'demo' | 'local' | 'gemini' | 'openai';
 
 export interface AiAgentConfig {
   mode: AiProviderMode;
@@ -16,7 +16,7 @@ export interface AiAgentConfig {
 const STORAGE_KEY = 'kinfire_ai_config_v1';
 
 export const DEFAULT_AI_CONFIG: AiAgentConfig = {
-  mode: 'local',
+  mode: 'demo',
   localEndpoint: 'http://localhost:11434/v1/chat/completions',
   localModel: 'qwen2.5vl',
   localApiKey: '',
@@ -45,6 +45,7 @@ export function saveAiConfig(config: AiAgentConfig): void {
 }
 
 export function isAiConfigured(config: AiAgentConfig): boolean {
+  if (config.mode === 'demo') return true;
   if (config.mode === 'local') {
     return Boolean(config.localEndpoint.trim() && config.localModel.trim());
   }
@@ -165,11 +166,142 @@ function extractJsonFromText(text: string): unknown {
   }
 }
 
+function fallbackDominantColor(imageDataUrl: string, boss: BossState): BaseColor {
+  if (boss.primedElement === 'red') return 'blue';
+  if (boss.primedElement === 'blue') return 'green';
+  if (boss.primedElement === 'green') return 'red';
+  const colors: BaseColor[] = ['red', 'green', 'blue'];
+  return colors[imageDataUrl.length % colors.length];
+}
+
+async function detectDominantColor(
+  imageDataUrl: string,
+  boss: BossState,
+): Promise<BaseColor> {
+  if (typeof document === 'undefined' || typeof Image === 'undefined') {
+    return fallbackDominantColor(imageDataUrl, boss);
+  }
+
+  return new Promise<BaseColor>((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const canvas = document.createElement('canvas');
+        canvas.width = 24;
+        canvas.height = 24;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          resolve(fallbackDominantColor(imageDataUrl, boss));
+          return;
+        }
+        ctx.drawImage(img, 0, 0, 24, 24);
+        const { data } = ctx.getImageData(0, 0, 24, 24);
+        let rSum = 0;
+        let gSum = 0;
+        let bSum = 0;
+        for (let i = 0; i < data.length; i += 4) {
+          const r = data[i];
+          const g = data[i + 1];
+          const b = data[i + 2];
+          // Weight saturated pixels higher so card borders/artwork win over neutral backgrounds
+          const spread = Math.max(r, g, b) - Math.min(r, g, b);
+          const weight = 1 + spread / 32;
+          rSum += r * weight;
+          gSum += g * weight;
+          bSum += b * weight;
+        }
+        if (rSum >= gSum && rSum >= bSum) resolve('red');
+        else if (gSum >= rSum && gSum >= bSum) resolve('green');
+        else resolve('blue');
+      } catch {
+        resolve(fallbackDominantColor(imageDataUrl, boss));
+      }
+    };
+    img.onerror = () => resolve(fallbackDominantColor(imageDataUrl, boss));
+    img.src = imageDataUrl;
+  });
+}
+
+async function analyzeCardDemo(
+  imageDataUrl: string,
+  boss: BossState,
+): Promise<AiCardAction> {
+  const color = await detectDominantColor(imageDataUrl, boss);
+  const reactionMap: Record<BaseColor, string> = {
+    red:
+      boss.primedElement === 'blue'
+        ? '과부하 융해 발동! 전 보호막 약화!'
+        : boss.primedElement === 'green'
+          ? '파쇄 치명타 발동! 1.5배 폭딜!'
+          : '다음 파랑(융해) 또는 초록(파쇄) 카드로 원소 공명 연계',
+    green:
+      boss.primedElement === 'blue'
+        ? '시간 균열 발동! 보스 반격 약화 및 챌린지 해제!'
+        : boss.primedElement === 'red'
+          ? '파쇄 치명타 발동! 강타 연계!'
+          : '다음 파랑(시간 균열) 또는 빨강(파쇄) 카드로 공명 연계',
+    blue:
+      boss.primedElement === 'red'
+        ? '과부하 융해 발동! 전 보호막 -1 연쇄!'
+        : boss.primedElement === 'green'
+          ? '시간 균열 발동! 반격 약화 & 방어 보강!'
+          : '다음 빨강(융해) 또는 초록(시간 균열) 카드로 공명 연계',
+  };
+
+  const preset: Record<BaseColor, AiCardAction> = {
+    red: {
+      cardName: '홍련의 비전 카드',
+      color: 'red',
+      skillTitle: '화염 쇄도',
+      damage: 5,
+      guard: 1,
+      disruptChallenge: false,
+      specialNote: `비전 데모 · 붉은 파동 분석 (${boss.intent.title} 대응)`,
+      battleCry: `${boss.name}의 방벽을 불꽃으로 꿰뚫는다!`,
+      reactionHint: reactionMap.red,
+      recommendedRole: 'breaker',
+    },
+    green: {
+      cardName: '비취의 기교 카드',
+      color: 'green',
+      skillTitle: '질풍 교란',
+      damage: 4,
+      guard: 1,
+      disruptChallenge: true,
+      specialNote: `비전 데모 · 초록 파동 분석 (방해 챌린지 해제)`,
+      battleCry:
+        boss.temporalStance === 'accelerate'
+          ? '가속 태세를 끊고 시간의 틈새를 노린다!'
+          : `${boss.name}의 빈틈을 파고들어 교란한다!`,
+      reactionHint: reactionMap.green,
+      recommendedRole: 'disruptor',
+    },
+    blue: {
+      cardName: '창공의 지혜 카드',
+      color: 'blue',
+      skillTitle: '성좌 방벽',
+      damage: 4,
+      guard: 2,
+      disruptChallenge: false,
+      specialNote: `비전 데모 · 푸른 파동 분석 (팀 보호 +2)`,
+      battleCry: `${boss.intent.title}에 맞서 성좌의 방벽을 전개한다!`,
+      reactionHint: reactionMap.blue,
+      recommendedRole: 'defender',
+    },
+  };
+
+  return normalizeAiAction(preset[color]);
+}
+
 export async function analyzeCardWithAI(
   imageDataUrl: string,
   boss: BossState,
   config: AiAgentConfig,
 ): Promise<AiCardAction> {
+  if (config.mode === 'demo') {
+    return analyzeCardDemo(imageDataUrl, boss);
+  }
+
   const prompt = buildSystemPrompt(boss);
   const base64Only = imageDataUrl.includes(',')
     ? imageDataUrl.split(',')[1]
@@ -294,6 +426,9 @@ export async function analyzeCardWithAI(
 }
 
 export async function testAiConnection(config: AiAgentConfig): Promise<string> {
+  if (config.mode === 'demo') {
+    return '비전 데모 모드 연결 완료! (카메라/사진 색상 실시간 분석)';
+  }
   if (config.mode === 'gemini') {
     if (!config.geminiApiKey.trim()) {
       throw new Error('Gemini API Key를 입력하세요.');

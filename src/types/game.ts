@@ -48,6 +48,27 @@ export interface RelicDef {
 
 export type TemporalStance = 'accelerate' | 'rewind';
 
+export type RaidRank = 'S' | 'A' | 'B' | 'C';
+
+export interface RaidStats {
+  totalDamageDealt: number;
+  maxSingleHit: number;
+  reactionsTriggered: number;
+  shieldsBroken: number;
+  aiScansCount: number;
+  ultimatesUsed: number;
+}
+
+export interface BossClearRecord {
+  bossId: BossId;
+  clears: number;
+  bestRank: RaidRank;
+  bestRounds: number;
+  bestScore: number;
+  lastRelicId: RelicId;
+  updatedAt: string;
+}
+
 export type RoundPhase =
   | 'boss_stance'
   | 'coop_turn'
@@ -153,7 +174,8 @@ export interface CombatEffectEvent {
     | 'challenge_clear'
     | 'elemental_reaction'
     | 'synergy_ultimate'
-    | 'phase_two';
+    | 'phase_two'
+    | 'boss_stagger';
   color: BaseColor | 'lantern' | 'void';
   amount?: number;
   label: string;
@@ -184,6 +206,9 @@ export interface BossState {
   intent: BossIntent;
   temporalStance: TemporalStance | null;
   lastBark: string | null;
+  staggered: boolean;
+  roundReactions: number;
+  staggerCount: number;
 }
 
 export interface AiCardAction {
@@ -223,6 +248,7 @@ export interface GameState {
   synergyGauge: number;
   relicId: RelicId;
   lastReaction: LastReactionInfo | null;
+  stats: RaidStats;
   players: [PlayerState, PlayerState];
   activeChain: ActiveActionChain;
   roundColorCounts: Record<BaseColor, number>;

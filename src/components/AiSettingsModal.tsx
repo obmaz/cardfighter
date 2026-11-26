@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Bot, CheckCircle2, Cpu, KeyRound, X } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Bot, CheckCircle2, Cpu, KeyRound, Sparkles, X } from 'lucide-react';
 import {
   testAiConnection,
   type AiAgentConfig,
@@ -25,6 +25,13 @@ export function AiSettingsModal({
     ok: boolean;
     message: string;
   } | null>(null);
+
+  useEffect(() => {
+    if (open) {
+      setDraft(config);
+      setTestResult(null);
+    }
+  }, [open, config]);
 
   if (!open) return null;
 
@@ -58,7 +65,7 @@ export function AiSettingsModal({
             <div>
               <h3>AI 비전 에이전트 연결</h3>
               <p className="drawer-sub">
-                로컬 개발 시엔 자체 AI 서버를, 웹 배포 시엔 API Key를 사용합니다.
+                API Key 없이 즉시 테스트하는 비전 데모부터 로컬 AI · Gemini · OpenAI까지 지원합니다.
               </p>
             </div>
           </div>
@@ -68,6 +75,13 @@ export function AiSettingsModal({
         </div>
 
         <div className="drawer-tabs">
+          <button
+            type="button"
+            className={draft.mode === 'demo' ? 'active' : ''}
+            onClick={() => setMode('demo')}
+          >
+            <Sparkles size={13} /> 비전 데모
+          </button>
           <button
             type="button"
             className={draft.mode === 'local' ? 'active' : ''}
@@ -90,6 +104,16 @@ export function AiSettingsModal({
             <KeyRound size={13} /> OpenAI Key
           </button>
         </div>
+
+        {draft.mode === 'demo' && (
+          <div className="ai-demo-box">
+            <strong>비전 데모 모드 (API Key 불필요)</strong>
+            <p>
+              카메라 프레임이나 업로드한 카드 사진의 지배 색상(빨강/초록/파랑)을 브라우저에서
+              실시간 분석해 보스의 현재 보호막·원소 공명 상태에 맞는 전술 액션을 즉시 실행합니다.
+            </p>
+          </div>
+        )}
 
         {draft.mode === 'local' && (
           <div className="ai-form-fields">

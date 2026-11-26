@@ -64,6 +64,14 @@ export function createInitialGameState(
     synergyGauge: 0,
     relicId,
     lastReaction: null,
+    stats: {
+      totalDamageDealt: 0,
+      maxSingleHit: 0,
+      reactionsTriggered: 0,
+      shieldsBroken: 0,
+      aiScansCount: 0,
+      ultimatesUsed: 0,
+    },
     players: [createPlayer(0, p1Seeker), createPlayer(1, p2Seeker)],
     activeChain: {
       ownerSlot: 0,
@@ -364,6 +372,14 @@ export function estimateBossCounter(
   boss: BossState,
   teamProtection: number,
 ): { raw: number; absorbed: number; net: number; weakened: number } {
+  if (boss.staggered) {
+    return {
+      raw: 0,
+      absorbed: 0,
+      net: 0,
+      weakened: boss.counterWeakened,
+    };
+  }
   const remainingShieldSum =
     boss.shields.red + boss.shields.green + boss.shields.blue;
   const overheatBonus = boss.isOverheated ? 2 : 0;
@@ -414,7 +430,9 @@ export function triggerSynergyUltimate(
     };
   }
 
-  const multiplier = prevState.boss.isUnstable ? 1.5 : 1;
+  const multiplier =
+    (prevState.boss.isUnstable ? 1.5 : 1) *
+    (prevState.boss.staggered ? 1.25 : 1);
   const damage = Math.ceil(10 * multiplier);
   const newBossHp = Math.max(0, prevState.boss.hp - damage);
   const brokeInvuln = prevState.boss.invulnerable;
@@ -423,6 +441,12 @@ export function triggerSynergyUltimate(
     ...prevState,
     synergyGauge: 0,
     teamProtection: prevState.teamProtection + 3,
+    stats: {
+      ...prevState.stats,
+      totalDamageDealt: prevState.stats.totalDamageDealt + damage,
+      maxSingleHit: Math.max(prevState.stats.maxSingleHit, damage),
+      ultimatesUsed: prevState.stats.ultimatesUsed + 1,
+    },
     boss: {
       ...prevState.boss,
       hp: newBossHp,
@@ -551,6 +575,12 @@ export function applyAiCardAction(
     state: {
       ...result.state,
       lastAiAction: action,
+      stats: result.error
+        ? result.state.stats
+        : {
+            ...result.state.stats,
+            aiScansCount: result.state.stats.aiScansCount + 1,
+          },
     },
     error: result.error,
   };
@@ -589,7 +619,8 @@ function resolveCardExecution(
     const casterIdx = chargedPlayerIdx as 0 | 1;
     const dice = rollDice(card.diceCount, 'lantern', state.nextEventId, rng);
     const totalPower = card.power + (dice?.totalBonus ?? 0);
-    const multiplier = state.boss.isUnstable ? 1.5 : 1;
+    const multiplier =
+      (state.boss.isUnstable ? 1.5 : 1) * (state.boss.staggered ? 1.25 : 1);
     const damage = Math.ceil(totalPower * multiplier);
 
     const players: [PlayerState, PlayerState] = [
@@ -605,6 +636,11 @@ function resolveCardExecution(
       players,
       teamProtection: state.teamProtection + card.protection,
       lastDiceRoll: dice,
+      stats: {
+        ...state.stats,
+        totalDamageDealt: state.stats.totalDamageDealt + damage,
+        maxSingleHit: Math.max(state.stats.maxSingleHit, damage),
+      },
       boss: {
         ...state.boss,
         hp: newBossHp,
@@ -787,7 +823,8 @@ function resolveCardExecution(
     if (state.boss.invulnerable) {
       blockedByInvuln = true;
     } else {
-      const mult = state.boss.isUnstable ? 1.5 : 1;
+      const mult =
+        (state.boss.isUnstable ? 1.5 : 1) * (state.boss.staggered ? 1.25 : 1);
       hpDamage = Math.ceil(overflowPower * mult);
     }
   }
@@ -901,15 +938,28 @@ function resolveCardExecution(
     (reaction?.bonusProtection ?? 0) +
     aegisBreakBonus;
 
-  const reactionBark = chronosStanceFlip
-    ? '시간의 궤도가 역전되었다!'
-    : reaction?.kind === 'melt'
-      ? '이 열기… 장갑이 녹아내리고 있어!'
-      : reaction?.kind === 'chrono'
-        ? '시간의 틈새에 공격이 둔화된다…!'
-        : reaction?.kind === 'shatter'
-          ? '크악! 치명적인 파쇄의 일격!'
-          : state.boss.lastBark;
+  const nextRoundReactions =
+    state.boss.roundReactions + (reaction ? 1 : 0);
+  const allShieldsZero =
+    nextShields.red === 0 && nextShields.green === 0 && nextShields.blue === 0;
+  const justStaggered =
+    !state.boss.staggered &&
+    (nextRoundReactions >= 2 ||
+      (allShieldsZero && (shieldBrokenNow || reaction?.kind === 'melt')));
+  const nextStaggered = state.boss.staggered || justStaggered;
+  const nextStaggerCount = state.boss.staggerCount + (justStaggered ? 1 : 0);
+
+  const reactionBark = justStaggered
+    ? '크아악...! 자세가 무너졌다!'
+    : chronosStanceFlip
+      ? '시간의 궤도가 역전되었다!'
+      : reaction?.kind === 'melt'
+        ? '이 열기… 장갑이 녹아내리고 있어!'
+        : reaction?.kind === 'chrono'
+          ? '시간의 틈새에 공격이 둔화된다…!'
+          : reaction?.kind === 'shatter'
+            ? '크악! 치명적인 파쇄의 일격!'
+            : state.boss.lastBark;
 
   const totalEffectiveDamage = shieldDamage + hpDamage;
   const logNoteParts: string[] = [];
@@ -923,6 +973,7 @@ function resolveCardExecution(
   if (card.protection > 0) logNoteParts.push(`보호 +${card.protection}`);
   if (aegisBreakBonus > 0) logNoteParts.push('아이기스 심장(방어 +1)');
   if (shieldBrokenNow) logNoteParts.push(`${COLOR_LABEL[resolvedColor]} 보호막 파쇄!`);
+  if (justStaggered) logNoteParts.push('보스 그로기! (반격 무효·피해 +25%)');
   if (blockedByInvuln) logNoteParts.push('본체 무적에 막힘 (랜턴 필요)');
   for (const ch of clearedChallenges) {
     logNoteParts.push(`챌린지 [${ch.name}] 제거`);
@@ -943,6 +994,13 @@ function resolveCardExecution(
     teamProtection: nextTeamProtection,
     synergyGauge: nextSynergyGauge,
     lastReaction: nextLastReaction,
+    stats: {
+      ...state.stats,
+      totalDamageDealt: state.stats.totalDamageDealt + totalEffectiveDamage,
+      maxSingleHit: Math.max(state.stats.maxSingleHit, totalEffectiveDamage),
+      reactionsTriggered: state.stats.reactionsTriggered + (reaction ? 1 : 0),
+      shieldsBroken: state.stats.shieldsBroken + (shieldBrokenNow ? 1 : 0),
+    },
     players: finalPlayers,
     activeChain: nextChain,
     roundColorCounts: nextColorCounts,
@@ -960,6 +1018,9 @@ function resolveCardExecution(
       counterWeakened: nextCounterWeakened,
       temporalStance: nextTemporalStance,
       lastBark: reactionBark,
+      staggered: nextStaggered,
+      roundReactions: nextRoundReactions,
+      staggerCount: nextStaggerCount,
     },
     logs: [
       {
@@ -1034,6 +1095,13 @@ function resolveCardExecution(
       label: `과열 경고! ${COLOR_LABEL[resolvedColor]} 과다 사용 → 반격 강화`,
     });
   }
+  if (justStaggered) {
+    state = pushEvent(state, {
+      kind: 'boss_stagger',
+      color: 'lantern',
+      label: '보스 그로기! 반격 무효 & 피해 +25%',
+    });
+  }
 
   state = checkAndApplyPhase2(state);
   state = applyVictoryIfDead(state);
@@ -1043,6 +1111,38 @@ function resolveCardExecution(
 export function resolveBossCounterPhase(prevState: GameState): GameState {
   if (prevState.phase !== 'coop_turn') return prevState;
   let state = commitCurrentChain(prevState);
+
+  if (state.boss.staggered) {
+    state = {
+      ...state,
+      phase: 'boss_counter',
+      teamProtection: 0,
+      logs: [
+        {
+          id: state.nextEventId,
+          round: state.round,
+          qrCode: 'BOSS_COUNTER',
+          cardName: `${state.boss.name} [그로기]`,
+          playerName: '보스 AI',
+          resolvedColor: 'lantern' as const,
+          isBoost: false,
+          damageDealt: 0,
+          shieldBroken: false,
+          note: '그로기 상태로 보스 반격이 무효화되었습니다!',
+        },
+        ...state.logs,
+      ].slice(0, 30),
+    };
+
+    state = pushEvent(state, {
+      kind: 'boss_counter',
+      color: 'lantern',
+      amount: 0,
+      label: '보스 그로기! 반격 무효화',
+    });
+
+    return state;
+  }
 
   const remainingShieldSum =
     state.boss.shields.red + state.boss.shields.green + state.boss.shields.blue;
@@ -1311,6 +1411,8 @@ export function startNextRound(prevState: GameState): GameState {
       counterWeakened: 0,
       intent: nextIntent,
       temporalStance: nextTemporalStance,
+      staggered: false,
+      roundReactions: 0,
       nextIntentText,
     },
   };

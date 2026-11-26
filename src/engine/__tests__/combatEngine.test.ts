@@ -1,4 +1,10 @@
 import { describe, expect, it } from 'vitest';
+import {
+  DEFAULT_AI_CONFIG,
+  analyzeCardWithAI,
+  isAiConfigured,
+  testAiConnection,
+} from '../../ai/visionAgent';
 import { createBossIntent, getBossIntentByType } from '../../data/bosses';
 import {
   applyAiCardAction,
@@ -11,6 +17,11 @@ import {
   startNextRound,
   triggerSynergyUltimate,
 } from '../combatEngine';
+import {
+  computeRaidGrade,
+  loadRaidCodex,
+  recordVictoryToCodex,
+} from '../raidCodex';
 
 const zeroDiceRng = () => 0.99; // Always rolls 'blank' (0 bonus) for deterministic assertions
 
@@ -398,12 +409,13 @@ describe('Kinfire Delve QR Boss Raid Combat Engine', () => {
     state = scanCard(state, 'KD_KHOR_R01', undefined, zeroDiceRng).state; // breaks red shield (3) -> +15 main + 15 break + 15 rewind = +45
     expect(state.synergyGauge).toBe(Math.min(100, gaugeBefore + 45));
 
-    // Rewind heals boss +2 HP on counter when shields remain (green 0, blue 0, red 0? Wait: red broke, so restore 1 green shield to test heal)
+    // Rewind heals boss +2 HP on counter when shields remain (restore 1 green shield & clear stagger to isolate heal test)
     state = {
       ...state,
       teamProtection: 10,
       boss: {
         ...state.boss,
+        staggered: false,
         shields: { red: 0, green: 1, blue: 0 },
       },
     };
@@ -477,5 +489,130 @@ describe('Kinfire Delve QR Boss Raid Combat Engine', () => {
     // 4 + 2 = 6 vs red shield 4 -> 2 overflow HP dmg (48), guard 1 + 1 = 2
     expect(res.state.boss.hp).toBe(48);
     expect(res.state.teamProtection).toBe(2);
+  });
+
+  it('staggers boss on 2 reactions in a round OR breaking all 3 shields, nullifying counter and boosting HP dmg by 1.25x', () => {
+    // Path A: 2 Elemental Reactions in one round (even with shields remaining)
+    let stateA = createInitialGameState('vainglory_core', 'khor', 'asha', 'vision_amplifier');
+    stateA = scanCard(stateA, 'KD_KHOR_R06', undefined, zeroDiceRng).state; // primes red
+    stateA = scanCard(stateA, 'KD_KHOR_B01', undefined, zeroDiceRng).state; // Reaction 1 (Melt)
+    expect(stateA.boss.roundReactions).toBe(1);
+    expect(stateA.boss.staggered).toBe(false);
+
+    stateA = scanCard(stateA, 'KD_ASHA_G08', undefined, zeroDiceRng).state; // primes green
+    stateA = scanCard(stateA, 'KD_KHOR_R01', undefined, zeroDiceRng).state; // Reaction 2 (Shatter) -> Stagger!
+    expect(stateA.boss.roundReactions).toBe(2);
+    expect(stateA.boss.staggered).toBe(true);
+    expect(stateA.boss.staggerCount).toBe(1);
+    expect(stateA.effectQueue.some((e) => e.kind === 'boss_stagger')).toBe(true);
+
+    // While staggered, incoming HP damage gets 1.25x bonus (KD_KHOR_R03 chains as boostValue 3; red shield 0, unstable + staggered = ceil(3 * 1.5 * 1.25) = 6)
+    const hpBeforeStaggerHit = stateA.boss.hp;
+    stateA = scanCard(stateA, 'KD_KHOR_R03', undefined, zeroDiceRng).state;
+    expect(hpBeforeStaggerHit - stateA.boss.hp).toBe(6);
+
+    // Counterattack is nullified (estimateBossCounter returns net 0; resolveBossCounterPhase deals 0)
+    expect(estimateBossCounter(stateA.boss, 0)).toEqual({
+      raw: 0,
+      absorbed: 0,
+      net: 0,
+      weakened: stateA.boss.counterWeakened,
+    });
+    const teamHpBefore = stateA.teamHp;
+    stateA = resolveBossCounterPhase(stateA);
+    expect(stateA.teamHp).toBe(teamHpBefore);
+
+    // startNextRound resets staggered and roundReactions
+    stateA = proceedToMaintenance(stateA);
+    stateA = startNextRound(stateA);
+    expect(stateA.boss.staggered).toBe(false);
+    expect(stateA.boss.roundReactions).toBe(0);
+    expect(stateA.boss.staggerCount).toBe(1);
+
+    // Path B: Breaking all 3 shields in a round (with < 2 reactions)
+    let stateB = createInitialGameState('vainglory_core', 'khor', 'asha', 'vision_amplifier');
+    stateB = scanCard(stateB, 'KD_KHOR_R01', undefined, zeroDiceRng).state; // red -> 0, primes red
+    stateB = scanCard(stateB, 'KD_ASHA_G08', undefined, zeroDiceRng).state; // green -> 0 (Reaction 1 Shatter)
+    expect(stateB.boss.staggered).toBe(false);
+    stateB = scanCard(stateB, 'KD_KHOR_B01', undefined, zeroDiceRng).state; // blue -> 0 -> all 3 shields 0 -> Stagger!
+    expect(stateB.boss.shields).toEqual({ red: 0, green: 0, blue: 0 });
+    expect(stateB.boss.staggered).toBe(true);
+    expect(stateB.boss.staggerCount).toBe(1);
+  });
+
+  it('tracks RaidStats, computes S/A/B/C RaidRank grades, and handles codex safely', () => {
+    let state = createInitialGameState('vainglory_core', 'khor', 'asha');
+    state = scanCard(state, 'KD_KHOR_R01', undefined, zeroDiceRng).state; // 5 dmg, 1 shield broken
+    state = scanCard(state, 'KD_ASHA_G08', undefined, zeroDiceRng).state; // Shatter: 10 dmg (8 + 2 prism), 1 shield broken, 1 reaction
+    state = applyAiCardAction(
+      state,
+      {
+        cardName: '비전 일격',
+        color: 'blue',
+        skillTitle: '비전 일격',
+        damage: 4,
+        guard: 0,
+        disruptChallenge: false,
+        specialNote: '테스트',
+        battleCry: '발동!',
+      },
+      zeroDiceRng,
+    ).state; // 4 dmg, 1 shield broken -> all 3 shields broken -> stagger!
+
+    expect(state.stats.totalDamageDealt).toBe(19);
+    expect(state.stats.maxSingleHit).toBe(10);
+    expect(state.stats.reactionsTriggered).toBe(1);
+    expect(state.stats.shieldsBroken).toBe(3);
+    expect(state.stats.aiScansCount).toBe(1);
+
+    // Non-victory grade
+    expect(computeRaidGrade(state).rank).toBe('C');
+    expect(computeRaidGrade(state).label).toBe('토벌 실패');
+
+    // Victory grade S (>=95): round 1 (max 8 -> +56), teamHp 10 (+30), base 50, reaction (+5), stagger (+10)
+    const victoryState = { ...state, phase: 'victory' as const };
+    const gradeS = computeRaidGrade(victoryState);
+    expect(gradeS.rank).toBe('S');
+    expect(gradeS.score).toBeGreaterThanOrEqual(95);
+
+    // Grade B/C check on late victory with low HP & exhaustions
+    const hardWinState = {
+      ...state,
+      phase: 'victory' as const,
+      round: 8,
+      teamHp: 2,
+      stats: { ...state.stats, reactionsTriggered: 0 },
+      boss: { ...state.boss, staggerCount: 0 },
+      players: [
+        { ...state.players[0], exhaustionCount: 1 },
+        { ...state.players[1], exhaustionCount: 1 },
+      ] as typeof state.players,
+    };
+    expect(computeRaidGrade(hardWinState).rank).toBe('C');
+
+    // Safe localStorage guard in Node
+    expect(loadRaidCodex()).toEqual({});
+    expect(recordVictoryToCodex(victoryState).vainglory_core?.bestRank).toBe('S');
+  });
+
+  it('supports zero-key demo mode in visionAgent (DEFAULT_AI_CONFIG, isAiConfigured, analyzeCardWithAI)', async () => {
+    expect(DEFAULT_AI_CONFIG.mode).toBe('demo');
+    expect(isAiConfigured(DEFAULT_AI_CONFIG)).toBe(true);
+    expect(await testAiConnection(DEFAULT_AI_CONFIG)).toContain('데모');
+
+    const state = createInitialGameState('chronos_wyrm', 'khor', 'asha');
+    const primedState = {
+      ...state,
+      boss: { ...state.boss, primedElement: 'red' as const },
+    };
+
+    const action = await analyzeCardWithAI(
+      'data:image/jpeg;base64,AAAA',
+      primedState.boss,
+      DEFAULT_AI_CONFIG,
+    );
+    expect(action.color).toBe('blue'); // complements primed 'red' for Melt
+    expect(action.damage).toBeGreaterThanOrEqual(1);
+    expect(action.reactionHint).toBeTruthy();
   });
 });

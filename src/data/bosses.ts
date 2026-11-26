@@ -189,5 +189,8 @@ export function createInitialBossState(bossId: BossId): BossState {
     intent: initialIntent,
     temporalStance: bossId === 'chronos_wyrm' ? 'accelerate' : null,
     lastBark: null,
+    staggered: false,
+    roundReactions: 0,
+    staggerCount: 0,
   };
 }

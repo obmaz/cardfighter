@@ -225,6 +225,7 @@ export function BossViewportPixi({
       bossFlashOverlay.circle(0, 0, 44).fill({ color: 0xffffff, alpha: 0.72 });
       bossFlashOverlay.visible = false;
       const barrierGfx = new Graphics();
+      const staggerRingGfx = new Graphics();
       const fxLayer = new Container();
       const labelLayer = new Container();
 
@@ -237,6 +238,7 @@ export function BossViewportPixi({
         bossArtHolder,
         bossFlashOverlay,
         barrierGfx,
+        staggerRingGfx,
       );
       world.addChild(backdropLayer, bgLayer, bossLayer, fxLayer, labelLayer);
       app.stage.addChild(world);
@@ -322,7 +324,7 @@ export function BossViewportPixi({
           }
           g.circle(0, 0, 56).stroke({ width: 6, color: 0xfef08a, alpha: 0.95 });
           g.circle(0, 0, 82).stroke({ width: 4, color: 0x38bdf8, alpha: 0.85 });
-        } else if (kind === 'phase_two') {
+        } else if (kind === 'phase_two' || kind === 'boss_stagger') {
           g.circle(0, 0, 58).fill({ color: hex, alpha: 0.28 });
           g.circle(0, 0, 70).stroke({ width: 7, color: hex, alpha: 0.95 });
           g.circle(0, 0, 92).stroke({ width: 4, color: 0xfef08a, alpha: 0.8 });
@@ -347,13 +349,16 @@ export function BossViewportPixi({
         const life =
           kind === 'lantern_beam' || kind === 'synergy_ultimate'
             ? 0.62
-            : kind === 'elemental_reaction' || kind === 'phase_two'
+            : kind === 'elemental_reaction' || kind === 'phase_two' || kind === 'boss_stagger'
               ? 0.48
               : 0.32;
         const expandSpeed =
           kind === 'synergy_ultimate'
             ? 2.8
-            : kind === 'elemental_reaction' || kind === 'phase_two' || kind === 'shield_break'
+            : kind === 'elemental_reaction' ||
+                kind === 'phase_two' ||
+                kind === 'boss_stagger' ||
+                kind === 'shield_break'
               ? 3.2
               : 1.4;
 
@@ -481,13 +486,28 @@ export function BossViewportPixi({
         });
 
         bossLayer.x = cx + (Math.random() - 0.5) * bossRecoil * 12;
-        bossLayer.y = cy + Math.sin(elapsed * (isPhase2 ? 3.8 : 2.4)) * 5;
+        bossLayer.y =
+          cy +
+          (b.staggered ? 6 : Math.sin(elapsed * (isPhase2 ? 3.8 : 2.4)) * 5);
 
         phase2Aura.clear();
         gearOuter.clear();
         gearInner.clear();
         bossBody.clear();
         barrierGfx.clear();
+        staggerRingGfx.clear();
+
+        if (b.staggered) {
+          staggerRingGfx
+            .ellipse(0, -56, 36, 10)
+            .stroke({ width: 2.5, color: 0xfbbf24, alpha: 0.9 });
+          for (let i = 0; i < 3; i++) {
+            const a = elapsed * 3.8 + (i * Math.PI * 2) / 3;
+            const sx = Math.cos(a) * 36;
+            const sy = -56 + Math.sin(a) * 10;
+            staggerRingGfx.circle(sx, sy, 4).fill({ color: 0xfef08a, alpha: 0.98 });
+          }
+        }
 
         if (isPhase2) {
           const pulseR = 78 + Math.sin(elapsed * 6) * 6;
@@ -758,6 +778,15 @@ export function BossViewportPixi({
             spawnSlash(cx, cy, hex, 'shield_break');
             spawnParticles(cx, cy, hex, 32, 310);
             spawnFloater(cx, cy - 20, ev.label, 0xffffff);
+          } else if (ev.kind === 'boss_stagger') {
+            shakeTimer = 0.45;
+            shakeStrength = 14;
+            flashTimer = 0.16;
+            bossRecoil = 1.6;
+            spawnSlash(cx, cy, 0xfbbf24, 'boss_stagger');
+            spawnParticles(cx, cy, 0xfbbf24, 40, 360);
+            spawnParticles(cx, cy, 0xffffff, 18, 280);
+            spawnFloater(cx, cy - 18, ev.label, 0xfef08a, 21);
           } else if (ev.kind === 'boss_counter') {
             shakeTimer = 0.35;
             shakeStrength = 11;
@@ -914,6 +943,9 @@ export function BossViewportPixi({
               ? '가속 태세 +1 반격'
               : '역행 태세 · 보호막 잔존 시 +2 회복'}
           </span>
+        )}
+        {boss.staggered && (
+          <span className="status-chip chip-stagger">STAGGERED · 그로기</span>
         )}
         {boss.phase === 2 && (
           <span className="status-chip chip-phase2">PHASE 2 · 각성</span>

@@ -120,6 +120,12 @@ class SoundEngine {
     }
   }
 
+  public playBossStagger() {
+    this.playTone(880, 220, 0.26, 'square', 0.16, 0);
+    this.playTone(660, 110, 0.34, 'sawtooth', 0.18, 0.04);
+    this.playTone(1320, 990, 0.22, 'triangle', 0.14, 0.1);
+  }
+
   public playEffect(ev: CombatEffectEvent) {
     switch (ev.kind) {
       case 'card_hit':
@@ -163,6 +169,9 @@ class SoundEngine {
         break;
       case 'phase_two':
         this.playPhaseTwo();
+        break;
+      case 'boss_stagger':
+        this.playBossStagger();
         break;
     }
   }
