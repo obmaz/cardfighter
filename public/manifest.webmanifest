@@ -1,0 +1,10 @@
+{
+  "name": "킨파이어 델브: QR 보스 레이드",
+  "short_name": "Kinfire QR",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "landscape",
+  "background_color": "#0b0e17",
+  "theme_color": "#0b0e17",
+  "description": "실물 카드 QR 스캔과 반응형 AI 보스 레이드를 결합한 하이브리드 웹앱 프로토타입"
+}
