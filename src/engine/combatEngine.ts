@@ -17,6 +17,7 @@ import type {
   DiceDieResult,
   DiceRollSummary,
   DifficultyTier,
+  FieldEchoState,
   GameState,
   PlayerState,
   ReactionKind,
@@ -67,6 +68,7 @@ export function createInitialGameState(
     synergyGauge: 0,
     relicId,
     difficulty,
+    fieldEcho: null,
     lastReaction: null,
     stats: {
       totalDamageDealt: 0,
@@ -744,11 +746,47 @@ function resolveCardExecution(
   const baseValue = isBoost ? card.boostValue : card.power;
   const baseRawAttack = baseValue + (dice?.totalBonus ?? 0);
 
+  // Consume active Field Echo before resolving the new card's reaction
+  const activeEcho = state.fieldEcho;
+  let echoAttackBonus = 0;
+  let echoProtectionBonus = 0;
+  let consumedEchoNote = '';
+  if (activeEcho?.kind === 'melt_echo') {
+    echoAttackBonus = 2;
+    consumedEchoNote = '융해 잔류열 +2 피해';
+  } else if (activeEcho?.kind === 'chrono_echo') {
+    echoProtectionBonus = 2;
+    consumedEchoNote = '균열 잔류파 +2 방어';
+  } else if (activeEcho?.kind === 'shatter_echo') {
+    echoAttackBonus = 3;
+    consumedEchoNote = '파쇄 잔류기 +3 피해';
+  }
+
   // Elemental Primer & Reaction resolution
   const { nextPrimed, reaction } = resolveElementalReaction(
     state.boss.primedElement,
     resolvedColor,
   );
+  const nextFieldEcho: FieldEchoState | null = reaction
+    ? reaction.kind === 'melt'
+      ? {
+          kind: 'melt_echo',
+          title: '융해 잔류열',
+          effectText: '다음 속성 공격 피해 +2',
+        }
+      : reaction.kind === 'chrono'
+        ? {
+            kind: 'chrono_echo',
+            title: '균열 잔류파',
+            effectText: '다음 속성 카드 방어 +2',
+          }
+        : {
+            kind: 'shatter_echo',
+            title: '파쇄 잔류기',
+            effectText: '다음 속성 공격 피해 +3',
+          }
+    : null;
+
   const isFirstBoostOfRound =
     isBoost && !state.logs.some((l) => l.round === state.round && l.isBoost);
   const isChainFinisher =
@@ -771,7 +809,8 @@ function resolveCardExecution(
     prismReactionBonus +
     (chronoDialTriggered ? 2 : 0) +
     (chronosStanceFlip ? 4 : 0) +
-    (isChainFinisher ? 4 : 0);
+    (isChainFinisher ? 4 : 0) +
+    echoAttackBonus;
 
   // Decrement estimated hand count for scanned player
   const actingPlayer = state.players[ownerSlot];
@@ -949,7 +988,8 @@ function resolveCardExecution(
     state.teamProtection +
     card.protection +
     (reaction?.bonusProtection ?? 0) +
-    aegisBreakBonus;
+    aegisBreakBonus +
+    echoProtectionBonus;
 
   const nextRoundReactions =
     state.boss.roundReactions + (reaction ? 1 : 0);
@@ -980,6 +1020,7 @@ function resolveCardExecution(
   const logNoteParts: string[] = [];
   if (isBoost) logNoteParts.push(`부스트 +${card.boostValue}`);
   if (isChainFinisher) logNoteParts.push('트리플 공명 피니시! (+4)');
+  if (consumedEchoNote) logNoteParts.push(consumedEchoNote);
   if (dice && dice.totalBonus > 0) logNoteParts.push(`주사위 +${dice.totalBonus}`);
   if (reaction) logNoteParts.push(`원소 공명[${reaction.title}]: ${reaction.detail}`);
   if (prismReactionBonus > 0) logNoteParts.push('프리즘 렌즈(+2 위력·+5 게이지)');
@@ -1009,6 +1050,7 @@ function resolveCardExecution(
     teamHp: nextTeamHp,
     teamProtection: nextTeamProtection,
     synergyGauge: nextSynergyGauge,
+    fieldEcho: nextFieldEcho,
     lastReaction: nextLastReaction,
     stats: {
       ...state.stats,
@@ -1411,6 +1453,7 @@ export function startNextRound(prevState: GameState): GameState {
     ...prevState,
     round: nextRound,
     phase: 'coop_turn',
+    fieldEcho: null,
     roundColorCounts: { red: 0, green: 0, blue: 0 },
     activeChain: {
       ownerSlot: 0,

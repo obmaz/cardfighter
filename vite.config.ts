@@ -7,4 +7,16 @@ export default defineConfig({
     host: true,
     port: 5173,
   },
+  build: {
+    chunkSizeWarningLimit: 650,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'pixi-vendor': ['pixi.js'],
+          'qr-vendor': ['qrcode', 'jsqr'],
+          'react-vendor': ['react', 'react-dom', 'lucide-react'],
+        },
+      },
+    },
+  },
 });

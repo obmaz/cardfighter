@@ -1,4 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import {
+  clearAiGrimoire,
+  loadAiGrimoire,
+  recordAiCardToGrimoire,
+} from '../aiGrimoire';
 import {
   DEFAULT_AI_CONFIG,
   analyzeCardWithAI,
@@ -507,10 +512,11 @@ describe('Kinfire Delve QR Boss Raid Combat Engine', () => {
     expect(stateA.boss.staggerCount).toBe(1);
     expect(stateA.effectQueue.some((e) => e.kind === 'boss_stagger')).toBe(true);
 
-    // While staggered, incoming HP damage gets 1.25x bonus (KD_KHOR_R03 chains as boostValue 3; red shield 0, unstable + staggered = ceil(3 * 1.5 * 1.25) = 6)
+    // While staggered, incoming HP damage gets 1.25x bonus + shatter_echo (+3):
+    // KD_KHOR_R03 chains as boostValue 3 + 3 (shatter_echo) = 6; unstable + staggered = ceil(6 * 1.5 * 1.25) = 12
     const hpBeforeStaggerHit = stateA.boss.hp;
     stateA = scanCard(stateA, 'KD_KHOR_R03', undefined, zeroDiceRng).state;
-    expect(hpBeforeStaggerHit - stateA.boss.hp).toBe(6);
+    expect(hpBeforeStaggerHit - stateA.boss.hp).toBe(12);
 
     // Counterattack is nullified (estimateBossCounter returns net 0; resolveBossCounterPhase deals 0)
     expect(estimateBossCounter(stateA.boss, 0)).toEqual({
@@ -558,9 +564,9 @@ describe('Kinfire Delve QR Boss Raid Combat Engine', () => {
         battleCry: '발동!',
       },
       zeroDiceRng,
-    ).state; // 4 dmg, 1 shield broken -> all 3 shields broken -> stagger!
+    ).state; // 4 + 3 (shatter_echo) = 7 dmg, 1 shield broken -> all 3 shields broken -> stagger!
 
-    expect(state.stats.totalDamageDealt).toBe(19);
+    expect(state.stats.totalDamageDealt).toBe(22);
     expect(state.stats.maxSingleHit).toBe(10);
     expect(state.stats.reactionsTriggered).toBe(1);
     expect(state.stats.shieldsBroken).toBe(3);
@@ -695,5 +701,112 @@ describe('Kinfire Delve QR Boss Raid Combat Engine', () => {
         (e) => e.kind === 'chain_finisher' && e.label.includes('트리플 공명 피니시'),
       ),
     ).toBe(true);
+  });
+
+  it('creates, consumes, replaces, and resets Elemental Field Echoes (melt_echo, chrono_echo, shatter_echo)', () => {
+    // 1. melt_echo (+2 attack)
+    let state = createInitialGameState('vainglory_core', 'khor', 'roland', 'vision_amplifier');
+    state = scanCard(state, 'KD_KHOR_R06', undefined, zeroDiceRng).state; // prime red
+    state = scanCard(state, 'KD_KHOR_B01', undefined, zeroDiceRng).state; // Melt -> melt_echo
+    expect(state.fieldEcho?.kind).toBe('melt_echo');
+
+    // Consumed by next elemental card (+2 raw attack) -> KD_KHOR_R06 (main power 1 + 2 melt_echo = 3 dmg; red shield 2 -> 0 + 1 HP dmg)
+    const hpBeforeMeltEcho = state.boss.hp;
+    state = scanCard(state, 'KD_KHOR_R06', undefined, zeroDiceRng).state;
+    expect(state.fieldEcho).toBeNull();
+    expect(state.logs[0]?.note).toContain('융해 잔류열 +2 피해');
+    expect(hpBeforeMeltEcho - state.boss.hp).toBe(1);
+
+    // 2. chrono_echo (+2 protection) & replacement when chaining another reaction
+    state = scanCard(state, 'KD_KHOR_B01', undefined, zeroDiceRng).state; // previous primed 'red' -> triggers Melt -> replaces echo
+    expect(state.fieldEcho?.kind).toBe('melt_echo');
+    // Let's start fresh for clean chrono_echo test
+    let chronoState = createInitialGameState('vainglory_core', 'khor', 'asha', 'vision_amplifier');
+    chronoState = scanCard(chronoState, 'KD_ASHA_G08', undefined, zeroDiceRng).state; // prime green
+    chronoState = scanCard(chronoState, 'KD_KHOR_B01', undefined, zeroDiceRng).state; // Chrono -> chrono_echo
+    expect(chronoState.fieldEcho?.kind).toBe('chrono_echo');
+    const protBefore = chronoState.teamProtection;
+    chronoState = scanCard(chronoState, 'KD_KHOR_R01', undefined, zeroDiceRng).state; // red power 5 (0 prot) + chrono_echo (+2 prot)
+    expect(chronoState.fieldEcho).toBeNull();
+    expect(chronoState.teamProtection).toBe(protBefore + 2);
+    expect(chronoState.logs[0]?.note).toContain('균열 잔류파 +2 방어');
+
+    // 3. shatter_echo (+3 attack), Lantern does NOT consume, startNextRound resets
+    let shatterState = createInitialGameState('vainglory_core', 'khor', 'asha', 'vision_amplifier');
+    shatterState = scanCard(shatterState, 'KD_KHOR_R01', undefined, zeroDiceRng).state; // prime red (red shield 0)
+    shatterState = scanCard(shatterState, 'KD_ASHA_G08', undefined, zeroDiceRng).state; // Shatter -> shatter_echo
+    expect(shatterState.fieldEcho?.kind).toBe('shatter_echo');
+
+    // Give p1 lanternCharged and scan Lantern -> fieldEcho remains!
+    shatterState = {
+      ...shatterState,
+      players: [
+        { ...shatterState.players[0], lanternCharged: true },
+        shatterState.players[1],
+      ],
+    };
+    shatterState = scanCard(shatterState, 'KD_LANTERN_01', undefined, zeroDiceRng).state;
+    expect(shatterState.fieldEcho?.kind).toBe('shatter_echo');
+
+    // startNextRound clears fieldEcho
+    shatterState = resolveBossCounterPhase(shatterState);
+    shatterState = proceedToMaintenance(shatterState);
+    shatterState = startNextRound(shatterState);
+    expect(shatterState.fieldEcho).toBeNull();
+  });
+
+  it('persists, deduplicates, sorts, caps, and clears Discovered AI Card Grimoire', () => {
+    // Safe guard in Node without window/localStorage
+    expect(loadAiGrimoire()).toEqual([]);
+    clearAiGrimoire();
+
+    const store = new Map<string, string>();
+    const mockStorage = {
+      getItem: (k: string) => store.get(k) ?? null,
+      setItem: (k: string, v: string) => {
+        store.set(k, v);
+      },
+      removeItem: (k: string) => {
+        store.delete(k);
+      },
+    };
+    vi.stubGlobal('window', {});
+    vi.stubGlobal('localStorage', mockStorage);
+
+    try {
+      const sampleAction = {
+        cardName: '화염의 검',
+        color: 'red' as const,
+        skillTitle: '화염 참격',
+        damage: 5,
+        guard: 1,
+        disruptChallenge: false,
+        specialNote: '테스트',
+        battleCry: '불타올라라!',
+      };
+
+      const first = recordAiCardToGrimoire(sampleAction);
+      expect(first).toHaveLength(1);
+      expect(first[0]?.timesUsed).toBe(1);
+
+      // Same color + case-insensitive cardName deduplicates & increments timesUsed
+      const second = recordAiCardToGrimoire({ ...sampleAction, cardName: ' 화염의 검 ' });
+      expect(second).toHaveLength(1);
+      expect(second[0]?.timesUsed).toBe(2);
+
+      // Cap at 24 unique cards
+      for (let i = 0; i < 26; i++) {
+        recordAiCardToGrimoire({
+          ...sampleAction,
+          cardName: `카드_${i}`,
+        });
+      }
+      expect(loadAiGrimoire()).toHaveLength(24);
+
+      clearAiGrimoire();
+      expect(loadAiGrimoire()).toEqual([]);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

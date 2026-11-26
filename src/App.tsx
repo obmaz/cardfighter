@@ -40,6 +40,11 @@ import {
   recordVictoryToCodex,
 } from './engine/raidCodex';
 import {
+  clearAiGrimoire,
+  loadAiGrimoire,
+  recordAiCardToGrimoire,
+} from './engine/aiGrimoire';
+import {
   analyzeCardWithAI,
   isAiConfigured,
   loadAiConfig,
@@ -52,10 +57,12 @@ import { QrTestDrawer } from './components/QrTestDrawer';
 import { AiSettingsModal } from './components/AiSettingsModal';
 import { sfx } from './audio/sfx';
 import type {
+  AiCardAction,
   BaseColor,
   BossClearRecord,
   BossId,
   DifficultyTier,
+  DiscoveredAiCard,
   GameState,
   RelicId,
   RoundPhase,
@@ -97,6 +104,9 @@ export function App() {
   const [aiBusy, setAiBusy] = useState(false);
   const [codex, setCodex] = useState<Partial<Record<BossId, BossClearRecord>>>(() =>
     loadRaidCodex(),
+  );
+  const [grimoire, setGrimoire] = useState<DiscoveredAiCard[]>(() =>
+    loadAiGrimoire(),
   );
   const victoryRecordedRef = useRef(false);
   const [scanStatus, setScanStatus] = useState<{
@@ -191,6 +201,7 @@ export function App() {
       setScanStatus({ text: 'AI 에이전트가 카드를 읽고 있습니다...' });
       try {
         const action = await analyzeCardWithAI(imageDataUrl, game.boss, aiConfig);
+        setGrimoire(recordAiCardToGrimoire(action));
         setGame((prev) => {
           const res = applyAiCardAction(prev, action);
           if (res.error) {
@@ -213,6 +224,36 @@ export function App() {
     },
     [aiConfig, game.boss],
   );
+
+  const handleCastGrimoireCard = useCallback((card: DiscoveredAiCard) => {
+    const action: AiCardAction = {
+      cardName: card.cardName,
+      color: card.color,
+      skillTitle: card.skillTitle,
+      damage: card.damage,
+      guard: card.guard,
+      disruptChallenge: card.disruptChallenge,
+      specialNote: card.specialNote,
+      battleCry: card.battleCry,
+    };
+    setGame((prev) => {
+      const res = applyAiCardAction(prev, action);
+      if (res.error) {
+        setScanStatus({ text: res.error, isError: true });
+      } else {
+        setScanStatus({
+          text: `[도감] ${action.cardName} → ${action.skillTitle} (${action.damage})`,
+        });
+      }
+      return res.state;
+    });
+    setGrimoire(recordAiCardToGrimoire(action));
+  }, []);
+
+  const handleClearGrimoire = useCallback(() => {
+    clearAiGrimoire();
+    setGrimoire([]);
+  }, []);
 
   const handleToggleMute = () => {
     const next = !muted;
@@ -392,6 +433,11 @@ export function App() {
       <main className="arena-grid">
         {/* MAIN HERO STAGE: BOSS + COMPACT CAMERA */}
         <section className="center-stage">
+          {game.logs.length === 0 && game.round === 1 && game.phase === 'coop_turn' && (
+            <div className="quick-start-tip">
+              빠른 시작: 카드를 비추고 [AI 카드 인식] 또는 [QR 테스트 → 비전 카드 샘플]로 바로 플레이!
+            </div>
+          )}
           <BossViewportPixi
             boss={game.boss}
             effectQueue={game.effectQueue}
@@ -434,6 +480,14 @@ export function App() {
               </div>
               <span className="reaction-detail">{game.lastReaction.detail}</span>
             </section>
+          )}
+          {game.fieldEcho && (
+            <div className={`field-echo-pill echo-${game.fieldEcho.kind}`}>
+              <Sparkles size={12} />
+              <span>
+                {game.fieldEcho.title} · {game.fieldEcho.effectText}
+              </span>
+            </div>
           )}
 
           {game.lastAiAction && (
@@ -952,6 +1006,9 @@ export function App() {
         p2Seeker={game.players[1].seekerId}
         onSimulateScan={(code) => handleScanCode(code)}
         onSimulateAiImage={(img) => void handleCaptureForAi(img)}
+        grimoire={grimoire}
+        onCastGrimoireCard={handleCastGrimoireCard}
+        onClearGrimoire={handleClearGrimoire}
       />
 
       {/* AI AGENT SETTINGS MODAL */}

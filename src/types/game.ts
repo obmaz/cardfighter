@@ -50,6 +50,28 @@ export type TemporalStance = 'accelerate' | 'rewind';
 
 export type DifficultyTier = 'normal' | 'heroic' | 'abyss';
 
+export type FieldEchoKind = 'melt_echo' | 'chrono_echo' | 'shatter_echo';
+
+export interface FieldEchoState {
+  kind: FieldEchoKind;
+  title: string;
+  effectText: string;
+}
+
+export interface DiscoveredAiCard {
+  id: string;
+  cardName: string;
+  color: BaseColor | 'lantern';
+  skillTitle: string;
+  damage: number;
+  guard: number;
+  disruptChallenge: boolean;
+  specialNote: string;
+  battleCry: string;
+  timesUsed: number;
+  lastSeenAt: string;
+}
+
 export type RaidRank = 'S' | 'A' | 'B' | 'C';
 
 export interface RaidStats {
@@ -252,6 +274,7 @@ export interface GameState {
   synergyGauge: number;
   relicId: RelicId;
   difficulty: DifficultyTier;
+  fieldEcho: FieldEchoState | null;
   lastReaction: LastReactionInfo | null;
   stats: RaidStats;
   players: [PlayerState, PlayerState];

@@ -1,8 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
 import QRCode from 'qrcode';
-import { Bot, Play, QrCode, X } from 'lucide-react';
+import { BookOpen, Bot, Play, QrCode, Trash2, X } from 'lucide-react';
 import { CARDS, getCardsForSeeker, SEEKER_ROSTER } from '../data/cards';
-import type { BaseColor, CardDef, SeekerId } from '../types/game';
+import type {
+  BaseColor,
+  CardDef,
+  DiscoveredAiCard,
+  SeekerId,
+} from '../types/game';
 
 interface QrTestDrawerProps {
   open: boolean;
@@ -11,6 +16,9 @@ interface QrTestDrawerProps {
   p2Seeker: SeekerId;
   onSimulateScan: (qrCode: string) => void;
   onSimulateAiImage?: (imageDataUrl: string) => void;
+  grimoire?: DiscoveredAiCard[];
+  onCastGrimoireCard?: (card: DiscoveredAiCard) => void;
+  onClearGrimoire?: () => void;
 }
 
 interface VisionSampleCard {
@@ -112,8 +120,13 @@ export function QrTestDrawer({
   p2Seeker,
   onSimulateScan,
   onSimulateAiImage,
+  grimoire = [],
+  onCastGrimoireCard,
+  onClearGrimoire,
 }: QrTestDrawerProps) {
-  const [tab, setTab] = useState<'p1' | 'p2' | 'lantern' | 'vision_samples'>('p1');
+  const [tab, setTab] = useState<
+    'p1' | 'p2' | 'lantern' | 'vision_samples' | 'grimoire'
+  >('p1');
   const [selectedQrCard, setSelectedQrCard] = useState<CardDef | null>(null);
   const [qrDataUrl, setQrDataUrl] = useState<string>('');
   const [manualInput, setManualInput] = useState('');
@@ -225,6 +238,13 @@ export function QrTestDrawer({
           >
             <Bot size={12} /> 비전 카드 샘플 (4종)
           </button>
+          <button
+            type="button"
+            className={tab === 'grimoire' ? 'active' : ''}
+            onClick={() => setTab('grimoire')}
+          >
+            <BookOpen size={12} /> 발견한 AI 도감 ({grimoire.length})
+          </button>
         </div>
 
         <div className="drawer-body">
@@ -260,6 +280,66 @@ export function QrTestDrawer({
                   </div>
                 </div>
               ))}
+            </div>
+          ) : tab === 'grimoire' ? (
+            <div className="grimoire-panel">
+              {grimoire.length === 0 ? (
+                <div className="grimoire-empty">
+                  <BookOpen size={24} />
+                  <strong>아직 발견한 AI 카드가 없습니다.</strong>
+                  <p>
+                    카메라에서 [AI 카드 인식]을 누르거나 [비전 카드 샘플] 탭에서 카드를 분석하면
+                    자동으로 도감에 기록됩니다.
+                  </p>
+                </div>
+              ) : (
+                <>
+                  <div className="grimoire-toolbar">
+                    <span>총 {grimoire.length}종의 실물 카드 기록됨</span>
+                    {onClearGrimoire && (
+                      <button
+                        type="button"
+                        className="mini-btn"
+                        onClick={onClearGrimoire}
+                      >
+                        <Trash2 size={12} /> 초기화
+                      </button>
+                    )}
+                  </div>
+                  <div className="card-sim-grid">
+                    {grimoire.map((card) => (
+                      <div key={card.id} className={`sim-card sim-${card.color}`}>
+                        <div className="sim-card-top">
+                          <span className="sim-code">×{card.timesUsed} 사용</span>
+                          <span className="sim-stats">
+                            위력 {card.damage} / 방어 +{card.guard}
+                            {card.disruptChallenge ? ' / 해제' : ''}
+                          </span>
+                        </div>
+                        <div className="sim-card-name">{card.cardName}</div>
+                        <div className="sim-card-desc">
+                          {card.skillTitle}
+                          {card.specialNote ? ` · ${card.specialNote}` : ''}
+                        </div>
+                        <div className="sim-card-actions">
+                          <button
+                            type="button"
+                            className="btn-sim-play"
+                            disabled={!onCastGrimoireCard}
+                            onClick={() => {
+                              onCastGrimoireCard?.(card);
+                              onClose();
+                            }}
+                          >
+                            <Play size={12} />
+                            재발동
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
             </div>
           ) : (
             <>
