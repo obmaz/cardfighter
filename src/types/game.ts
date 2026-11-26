@@ -140,6 +140,17 @@ export interface BossState {
   baseCounterAttack: number;
 }
 
+export interface AiCardAction {
+  cardName: string;
+  color: BaseColor | 'lantern';
+  skillTitle: string;
+  damage: number;
+  guard: number;
+  disruptChallenge: boolean;
+  specialNote: string;
+  battleCry: string;
+}
+
 export interface PendingColorChoice {
   qrCode: string;
   card: CardDef;
@@ -158,6 +169,7 @@ export interface GameState {
   activeChain: ActiveActionChain;
   roundColorCounts: Record<BaseColor, number>;
   lastDiceRoll: DiceRollSummary | null;
+  lastAiAction: AiCardAction | null;
   pendingColorChoice: PendingColorChoice | null;
   logs: ScanLogEntry[];
   effectQueue: CombatEffectEvent[];

@@ -482,19 +482,19 @@ export function BossViewportPixi({
       {/* Shield Slots Overlay */}
       <div className="shield-bar-overlay">
         <ShieldPill
-          label="힘 (빨강)"
+          label="RED"
           value={boss.shields.red}
           max={boss.maxShields.red}
           color="red"
         />
         <ShieldPill
-          label="기교 (초록)"
+          label="GREEN"
           value={boss.shields.green}
           max={boss.maxShields.green}
           color="green"
         />
         <ShieldPill
-          label={boss.id === 'kalos_prime' ? '플라스크 (파랑)' : '지혜 (파랑)'}
+          label={boss.id === 'kalos_prime' ? 'BLUE · 플라스크' : 'BLUE'}
           value={boss.shields.blue}
           max={boss.maxShields.blue}
           color="blue"
@@ -504,17 +504,17 @@ export function BossViewportPixi({
       {/* Boss Badges */}
       <div className="boss-state-badges">
         {boss.invulnerable && (
-          <span className="status-chip chip-void">무적 결계 활성 (랜턴 관통)</span>
+          <span className="status-chip chip-void">무적 결계</span>
         )}
         {boss.isUnstable && (
-          <span className="status-chip chip-unstable">불안정 (피해 +50%)</span>
+          <span className="status-chip chip-unstable">불안정 ×1.5</span>
         )}
         {boss.isOverheated && (
-          <span className="status-chip chip-overheat">과열 상태 (반격 +2)</span>
+          <span className="status-chip chip-overheat">과열 +2</span>
         )}
-        {boss.id === 'kalos_prime' && (
+        {boss.id === 'kalos_prime' && boss.voidGauge > 0 && (
           <span className="status-chip chip-void">
-            공허 게이지 {boss.voidGauge}/3
+            공허 {boss.voidGauge}/3
           </span>
         )}
       </div>

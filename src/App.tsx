@@ -1,7 +1,9 @@
 import { useCallback, useState } from 'react';
 import {
+  Bot,
   Flame,
   Heart,
+  HelpCircle,
   RotateCcw,
   Shield,
   Sparkles,
@@ -13,6 +15,7 @@ import {
 import { BOSS_TEMPLATES } from './data/bosses';
 import { SEEKER_ROSTER } from './data/cards';
 import {
+  applyAiCardAction,
   clearPendingColorChoice,
   commitCurrentChain,
   createInitialGameState,
@@ -22,25 +25,33 @@ import {
   scanCard,
   startNextRound,
 } from './engine/combatEngine';
+import {
+  analyzeCardWithAI,
+  isAiConfigured,
+  loadAiConfig,
+  saveAiConfig,
+  type AiAgentConfig,
+} from './ai/visionAgent';
 import { BossViewportPixi } from './components/BossViewportPixi';
 import { QrVisionScanner } from './components/QrVisionScanner';
 import { QrTestDrawer } from './components/QrTestDrawer';
+import { AiSettingsModal } from './components/AiSettingsModal';
 import { sfx } from './audio/sfx';
 import type { BaseColor, BossId, GameState, RoundPhase, SeekerId } from './types/game';
 
 const PHASE_LABEL: Record<RoundPhase, string> = {
-  boss_stance: '1. 보스 태세 전개',
-  coop_turn: '2. 탐구자 협력 턴',
-  boss_counter: '3. 보스 반격 / 기믹',
-  maintenance: '4. 정비 & 탈진 판정',
-  victory: '레이드 승리!',
-  defeat: '레이드 패배',
+  boss_stance: '보스 태세',
+  coop_turn: '협력 턴',
+  boss_counter: '보스 반격',
+  maintenance: '정비 · 탈진',
+  victory: '승리!',
+  defeat: '패배',
 };
 
 const COLOR_KO: Record<BaseColor | 'lantern', string> = {
-  red: '빨강 (힘)',
-  green: '초록 (기교)',
-  blue: '파랑 (지혜)',
+  red: '빨강',
+  green: '초록',
+  blue: '파랑',
   lantern: '랜턴',
 };
 
@@ -55,10 +66,57 @@ export function App() {
   const [muted, setMuted] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [setupOpen, setSetupOpen] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
+  const [aiSettingsOpen, setAiSettingsOpen] = useState(false);
+  const [aiConfig, setAiConfig] = useState<AiAgentConfig>(() => loadAiConfig());
+  const [aiBusy, setAiBusy] = useState(false);
   const [scanStatus, setScanStatus] = useState<{
     text: string;
     isError?: boolean;
   } | null>(null);
+
+  const handleSaveAiConfig = (next: AiAgentConfig) => {
+    saveAiConfig(next);
+    setAiConfig(next);
+  };
+
+  const handleCaptureForAi = useCallback(
+    async (imageDataUrl: string) => {
+      if (!isAiConfigured(aiConfig)) {
+        setScanStatus({
+          text: '먼저 AI 설정에서 로컬 모델 또는 API Key를 입력하세요.',
+          isError: true,
+        });
+        setAiSettingsOpen(true);
+        return;
+      }
+
+      setAiBusy(true);
+      setScanStatus({ text: 'AI 에이전트가 카드를 읽고 있습니다...' });
+      try {
+        const action = await analyzeCardWithAI(imageDataUrl, game.boss, aiConfig);
+        setGame((prev) => {
+          const res = applyAiCardAction(prev, action);
+          if (res.error) {
+            setScanStatus({ text: res.error, isError: true });
+          } else {
+            setScanStatus({
+              text: `[AI] ${action.cardName} → ${action.skillTitle} (${action.damage})`,
+            });
+          }
+          return res.state;
+        });
+      } catch (err) {
+        setScanStatus({
+          text: err instanceof Error ? err.message : 'AI 카드 인식 실패',
+          isError: true,
+        });
+      } finally {
+        setAiBusy(false);
+      }
+    },
+    [aiConfig, game.boss],
+  );
 
   const handleToggleMute = () => {
     const next = !muted;
@@ -75,7 +133,7 @@ export function App() {
     setP1Seeker(nextP1);
     setP2Seeker(nextP2);
     setGame(createInitialGameState(nextBoss, nextP1, nextP2));
-    setScanStatus({ text: '새 레이드가 시작되었습니다. 카드를 스캔하세요!' });
+    setScanStatus({ text: '레이드 시작! 카드를 스캔하세요.' });
     setSetupOpen(false);
   };
 
@@ -87,14 +145,14 @@ export function App() {
           setScanStatus({ text: res.error, isError: true });
         } else if (res.state.pendingColorChoice) {
           setScanStatus({
-            text: `${res.state.pendingColorChoice.card.name}: 사용할 속성을 선택하세요.`,
+            text: `${res.state.pendingColorChoice.card.name}: 속성 선택`,
           });
         } else {
           const latest = res.state.logs[0];
           setScanStatus({
             text: latest
-              ? `[${latest.cardName}] 스캔 완료 (${latest.note})`
-              : `스캔 완료: ${qrCode}`,
+              ? `${latest.cardName}${latest.damageDealt > 0 ? ` (-${latest.damageDealt})` : ''}`
+              : `스캔: ${qrCode}`,
           });
         }
         return res.state;
@@ -120,10 +178,11 @@ export function App() {
     remainingShieldSum +
     (game.boss.isOverheated ? 2 : 0) +
     game.boss.challenges.reduce((s, c) => s + c.penaltyDamage, 0);
+  const netEstimatedCounter = Math.max(0, estimatedCounter - game.teamProtection);
 
   return (
     <div className="raid-shell">
-      {/* TOP BAR */}
+      {/* SLIM TOP HUD */}
       <header className="top-bar">
         <div className="boss-header-info">
           <div className="boss-title-row">
@@ -133,14 +192,14 @@ export function App() {
           <div className="boss-hp-track">
             <div className="boss-hp-fill" style={{ width: `${bossHpPct}%` }} />
             <span className="boss-hp-text">
-              HP {game.boss.hp} / {game.boss.maxHp}
+              {game.boss.hp} / {game.boss.maxHp} HP
             </span>
           </div>
         </div>
 
         <div className="round-phase-cluster">
           <div className="round-pill">
-            라운드 <strong>{game.round}</strong> / {game.maxRounds}
+            R<strong>{game.round}</strong>/{game.maxRounds}
           </div>
           <div className={`phase-pill phase-${game.phase}`}>
             {PHASE_LABEL[game.phase]}
@@ -150,11 +209,33 @@ export function App() {
         <div className="top-actions">
           <button
             type="button"
+            className={`btn-ghost ${isAiConfigured(aiConfig) ? 'btn-ai-ready' : ''}`}
+            onClick={() => setAiSettingsOpen(true)}
+            title="AI 비전 에이전트 연결 설정"
+          >
+            <Bot size={15} />
+            {aiConfig.mode === 'local'
+              ? '로컬 AI'
+              : aiConfig.mode === 'gemini'
+                ? 'Gemini'
+                : 'OpenAI'}
+          </button>
+          <button
+            type="button"
+            className="btn-ghost"
+            onClick={() => setHelpOpen(true)}
+            title="보스 기믹 안내"
+          >
+            <HelpCircle size={15} />
+            기믹
+          </button>
+          <button
+            type="button"
             className="btn-ghost"
             onClick={() => setSetupOpen(true)}
           >
             <RotateCcw size={14} />
-            보스/덱 설정
+            덱/보스
           </button>
           <button
             type="button"
@@ -162,57 +243,14 @@ export function App() {
             onClick={handleToggleMute}
             aria-label="사운드 토글"
           >
-            {muted ? <VolumeX size={16} /> : <Volume2 size={16} />}
+            {muted ? <VolumeX size={15} /> : <Volume2 size={15} />}
           </button>
         </div>
       </header>
 
-      {/* MAIN 3-COLUMN ARENA */}
+      {/* CLEAN 2-ZONE ARENA */}
       <main className="arena-grid">
-        {/* LEFT: BOSS INTENT & CHALLENGES */}
-        <aside className="side-panel left-panel">
-          <section className="panel-card">
-            <h2 className="panel-heading">
-              <Swords size={15} /> 보스 행동 예고
-            </h2>
-            <p className="intent-highlight">{game.boss.nextIntentText}</p>
-            <div className="counter-forecast">
-              <span>예상 반격 피해</span>
-              <strong>
-                {estimatedCounter} 데미지{' '}
-                <small>(보호 {game.teamProtection} 차감 예정)</small>
-              </strong>
-            </div>
-            <ul className="gimmick-list">
-              {bossTpl.gimmickSummary.map((line, idx) => (
-                <li key={idx}>{line}</li>
-              ))}
-            </ul>
-          </section>
-
-          <section className="panel-card">
-            <h2 className="panel-heading">
-              <Zap size={15} /> 방해 챌린지 카드 ({game.boss.challenges.length})
-            </h2>
-            {game.boss.challenges.length === 0 ? (
-              <p className="empty-hint">활성화된 방해 챌린지가 없습니다.</p>
-            ) : (
-              <div className="challenge-list">
-                {game.boss.challenges.map((ch) => (
-                  <div key={ch.id} className="challenge-card">
-                    <div className="challenge-head">
-                      <strong>{ch.name}</strong>
-                      <span className="badge-green">초록으로 제거</span>
-                    </div>
-                    <p>{ch.description}</p>
-                  </div>
-                ))}
-              </div>
-            )}
-          </section>
-        </aside>
-
-        {/* CENTER: PIXI BOSS VIEWPORT + QR/VISION VIEWFINDER */}
+        {/* MAIN HERO STAGE: BOSS + COMPACT CAMERA */}
         <section className="center-stage">
           <BossViewportPixi
             boss={game.boss}
@@ -221,99 +259,114 @@ export function App() {
           />
           <QrVisionScanner
             onScan={(code) => handleScanCode(code)}
+            onCaptureForAi={(img) => void handleCaptureForAi(img)}
             onOpenTestDeck={() => setDrawerOpen(true)}
+            aiBusy={aiBusy}
             disabled={game.phase !== 'coop_turn'}
             lastScanStatus={scanStatus}
           />
         </section>
 
-        {/* RIGHT: COMBO CHAIN & SCAN LOG */}
-        <aside className="side-panel right-panel">
-          <section className="panel-card">
-            <div className="panel-heading-row">
-              <h2 className="panel-heading">
-                <Sparkles size={15} /> 현재 협력 콤보
-              </h2>
+        {/* SLIM TACTICAL HUD RAIL */}
+        <aside className="hud-rail">
+          {game.lastAiAction && (
+            <section className="hud-block ai-callout-block">
+              <div className="hud-label">
+                <Bot size={14} className="accent-amber" /> AI 에이전트: {game.lastAiAction.cardName}
+              </div>
+              <p className="ai-battle-cry">“{game.lastAiAction.battleCry}”</p>
+            </section>
+          )}
+          {/* Next Boss Attack */}
+          <section className="hud-block intent-block">
+            <div className="hud-label">
+              <Swords size={14} /> 다음 보스 반격
+            </div>
+            <div className="intent-number-row">
+              <span className="intent-dmg">{netEstimatedCounter}</span>
+              <span className="intent-sub">
+                총 {estimatedCounter} - 방어 {game.teamProtection}
+              </span>
+            </div>
+            {game.boss.challenges.length > 0 && (
+              <div className="challenge-chips">
+                {game.boss.challenges.map((ch) => (
+                  <span key={ch.id} className="challenge-pill">
+                    <Zap size={11} /> {ch.name} (초록으로 제거)
+                  </span>
+                ))}
+              </div>
+            )}
+          </section>
+
+          {/* Active Combo Slots */}
+          <section className="hud-block">
+            <div className="hud-head-row">
+              <span className="hud-label">
+                <Sparkles size={14} /> 콤보 체인
+              </span>
               {game.activeChain.mainCard && (
                 <button
                   type="button"
                   className="mini-btn"
                   onClick={() => setGame((g) => commitCurrentChain(g))}
                 >
-                  세트 확정
+                  확정
                 </button>
               )}
             </div>
 
-            <div className="chain-box">
-              {game.activeChain.mainCard ? (
-                <>
-                  <div className="chain-slot chain-main">
-                    <span className="slot-tag">메인 카드</span>
-                    <strong>{game.activeChain.mainCard.name}</strong>
-                    <span
-                      className={`color-dot dot-${game.activeChain.resolvedColor ?? 'red'}`}
+            <div className="combo-slots">
+              <div
+                className={`combo-pill ${
+                  game.activeChain.mainCard
+                    ? `filled dot-${game.activeChain.resolvedColor ?? 'red'}`
+                    : ''
+                }`}
+              >
+                <small>메인</small>
+                <strong>
+                  {game.activeChain.mainCard
+                    ? game.activeChain.mainCard.name
+                    : '카드 스캔'}
+                </strong>
+              </div>
+              <div className="combo-boosts">
+                {[0, 1].map((idx) => {
+                  const b = game.activeChain.boostCards[idx];
+                  return (
+                    <div
+                      key={idx}
+                      className={`combo-pill boost ${b ? 'filled' : ''}`}
                     >
-                      {game.activeChain.resolvedColor
-                        ? COLOR_KO[game.activeChain.resolvedColor]
-                        : ''}
-                    </span>
-                  </div>
-                  <div className="chain-boost-row">
-                    {[0, 1].map((idx) => {
-                      const b = game.activeChain.boostCards[idx];
-                      return (
-                        <div
-                          key={idx}
-                          className={`chain-slot chain-boost ${b ? 'filled' : ''}`}
-                        >
-                          <span className="slot-tag">부스트 {idx + 1}</span>
-                          <strong>{b ? `${b.name} (+${b.boostValue})` : '대기 중'}</strong>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </>
-              ) : (
-                <p className="empty-hint">
-                  메인 카드 1장을 스캔하면 동료가 동일 색상 부스트를 최대 2장 연계할 수 있습니다.
-                </p>
-              )}
-            </div>
-
-            <div className="round-color-tracker">
-              <span>이번 라운드 속성 분포:</span>
-              <div className="color-counts">
-                <span className="cnt-red">R {game.roundColorCounts.red}</span>
-                <span className="cnt-green">G {game.roundColorCounts.green}</span>
-                <span className="cnt-blue">B {game.roundColorCounts.blue}</span>
+                      <small>부스트 {idx + 1}</small>
+                      <strong>{b ? `+${b.boostValue}` : '—'}</strong>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           </section>
 
-          <section className="panel-card log-panel">
-            <h2 className="panel-heading">스캔 카드 히스토리</h2>
-            <div className="scan-log-list">
+          {/* Compact Recent Feed (max 4) */}
+          <section className="hud-block feed-block">
+            <div className="hud-label">최근 액션</div>
+            <div className="recent-feed">
               {game.logs.length === 0 ? (
-                <p className="empty-hint">아직 스캔된 카드가 없습니다.</p>
+                <span className="feed-empty">스캔 대기 중</span>
               ) : (
-                game.logs.map((entry) => (
-                  <div key={entry.id} className={`log-item log-${entry.resolvedColor}`}>
-                    <div className="log-top">
-                      <strong>
-                        {entry.isBoost ? '↳ [부스트] ' : ''}
-                        {entry.cardName}
-                      </strong>
-                      <span className="log-dmg">
-                        {entry.damageDealt > 0 ? `-${entry.damageDealt}` : '효과'}
-                      </span>
-                    </div>
-                    <div className="log-sub">
-                      <span>
-                        R{entry.round} · {entry.playerName}
-                      </span>
-                      <span>{entry.note}</span>
-                    </div>
+                game.logs.slice(0, 4).map((entry) => (
+                  <div
+                    key={entry.id}
+                    className={`feed-row feed-${entry.resolvedColor}`}
+                  >
+                    <span className="feed-name">
+                      {entry.isBoost ? '↳ ' : ''}
+                      {entry.cardName}
+                    </span>
+                    <strong className="feed-val">
+                      {entry.damageDealt > 0 ? `-${entry.damageDealt}` : '발동'}
+                    </strong>
                   </div>
                 ))
               )}
@@ -322,22 +375,22 @@ export function App() {
         </aside>
       </main>
 
-      {/* BOTTOM PLAYER & PHASE BAR */}
+      {/* BOTTOM TACTILE BAR */}
       <footer className="bottom-bar">
         <div className="team-vital-box">
           <div className="vital-header">
             <span className="vital-title">
-              <Heart size={15} className="heart-icon" /> 공유 팀 체력
+              <Heart size={15} className="heart-icon" /> 팀 체력
             </span>
             <strong>
-              {game.teamHp} / {game.maxTeamHp}
+              {game.teamHp}/{game.maxTeamHp}
             </strong>
           </div>
           <div className="team-hp-track">
             <div className="team-hp-fill" style={{ width: `${teamHpPct}%` }} />
           </div>
           <div className="team-prot-row">
-            <Shield size={13} /> 확보한 보호: <strong>{game.teamProtection}</strong>
+            <Shield size={13} /> 방어막 <strong>+{game.teamProtection}</strong>
           </div>
         </div>
 
@@ -347,35 +400,28 @@ export function App() {
               key={player.slot}
               className={`player-card player-${player.primaryColor}`}
             >
-              <div className="player-top">
-                <div>
-                  <span className="player-slot-badge">P{player.slot + 1}</span>
-                  <strong>{player.name}</strong>
-                </div>
+              <div className="player-identity">
+                <span className="player-slot-badge">P{player.slot + 1}</span>
+                <strong>{player.name.split(' ')[0]}</strong>
                 <span
-                  className={`lantern-badge ${player.lanternCharged ? 'charged' : ''}`}
+                  className={`lantern-icon ${player.lanternCharged ? 'charged' : ''}`}
+                  title={player.lanternCharged ? '랜턴 충전됨' : '랜턴 미충전'}
                 >
-                  <Flame size={13} />
-                  {player.lanternCharged ? '랜턴 충전됨!' : '랜턴 미충전'}
+                  <Flame size={14} />
+                  {player.lanternCharged ? '랜턴 ON' : '랜턴'}
                 </span>
               </div>
 
-              <div className="player-bottom">
-                <span className="hand-meta">
-                  추정 손패 {player.cardsInHandEstimate}/{player.maxHandSize} · 탈진{' '}
-                  {player.exhaustionCount}회
-                </span>
-                <button
-                  type="button"
-                  className="btn-exhaust"
-                  disabled={
-                    game.phase !== 'maintenance' && game.phase !== 'coop_turn'
-                  }
-                  onClick={() => setGame((g) => declareExhaustion(g, player.slot))}
-                >
-                  탈진 선언 (7장 보충)
-                </button>
-              </div>
+              <button
+                type="button"
+                className="btn-exhaust"
+                disabled={
+                  game.phase !== 'maintenance' && game.phase !== 'coop_turn'
+                }
+                onClick={() => setGame((g) => declareExhaustion(g, player.slot))}
+              >
+                탈진
+              </button>
             </div>
           ))}
         </div>
@@ -387,7 +433,7 @@ export function App() {
               className="btn-phase-next"
               onClick={() => setGame((g) => resolveBossCounterPhase(g))}
             >
-              턴 종료 · 보스 반격
+              턴 종료 → 보스 반격
             </button>
           )}
           {game.phase === 'boss_counter' && (
@@ -396,7 +442,7 @@ export function App() {
               className="btn-phase-next"
               onClick={() => setGame((g) => proceedToMaintenance(g))}
             >
-              정비 &amp; 탈진 판정으로
+              정비 단계로
             </button>
           )}
           {game.phase === 'maintenance' && (
@@ -406,7 +452,7 @@ export function App() {
               onClick={() => setGame((g) => startNextRound(g))}
             >
               {game.round >= game.maxRounds
-                ? '최종 결과 판정'
+                ? '결과 판정'
                 : `${game.round + 1}라운드 시작`}
             </button>
           )}
@@ -417,10 +463,10 @@ export function App() {
       {game.pendingColorChoice && (
         <div className="modal-backdrop">
           <div className="choice-modal">
-            <h3>이중 / 무색 속성 선택</h3>
+            <h3>속성 선택</h3>
             <p>
-              <strong>{game.pendingColorChoice.card.name}</strong> 카드를 어느 속성으로
-              발동할까요?
+              <strong>{game.pendingColorChoice.card.name}</strong>을(를) 어떤
+              속성으로 사용할까요?
             </p>
             <div className="color-choice-grid">
               {game.pendingColorChoice.allowedColors.map((col) => (
@@ -431,7 +477,7 @@ export function App() {
                   onClick={() => handleColorPick(col)}
                 >
                   {COLOR_KO[col]}
-                  <small>현재 보스 보호막: {game.boss.shields[col]}</small>
+                  <small>보호막 {game.boss.shields[col]}</small>
                 </button>
               ))}
             </div>
@@ -441,6 +487,29 @@ export function App() {
               onClick={() => setGame((g) => clearPendingColorChoice(g))}
             >
               취소
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* BOSS GIMMICK HELP MODAL */}
+      {helpOpen && (
+        <div className="modal-backdrop" onClick={() => setHelpOpen(false)}>
+          <div className="choice-modal" onClick={(e) => e.stopPropagation()}>
+            <h3>
+              {game.boss.name} · {game.boss.subtitle}
+            </h3>
+            <ul className="gimmick-list">
+              {bossTpl.gimmickSummary.map((line, idx) => (
+                <li key={idx}>{line}</li>
+              ))}
+            </ul>
+            <button
+              type="button"
+              className="btn-phase-next"
+              onClick={() => setHelpOpen(false)}
+            >
+              확인
             </button>
           </div>
         </div>
@@ -458,14 +527,14 @@ export function App() {
                 className="btn-phase-next"
                 onClick={() => handleRestart()}
               >
-                다시 도전하기
+                다시 도전
               </button>
               <button
                 type="button"
                 className="btn-ghost"
                 onClick={() => setSetupOpen(true)}
               >
-                보스 / 탐구자 변경
+                보스 변경
               </button>
             </div>
           </div>
@@ -476,7 +545,7 @@ export function App() {
       {setupOpen && (
         <div className="modal-backdrop" onClick={() => setSetupOpen(false)}>
           <div className="setup-modal" onClick={(e) => e.stopPropagation()}>
-            <h3>보스 및 탐구자 편성</h3>
+            <h3>보스 및 덱 편성</h3>
             <div className="setup-group">
               <label>보스 선택</label>
               <div className="setup-options">
@@ -491,7 +560,7 @@ export function App() {
                     >
                       <strong>{tpl.name}</strong>
                       <span>
-                        {tpl.subtitle} · {tpl.maxHp} HP ({tpl.difficulty})
+                        {tpl.subtitle} · {tpl.maxHp} HP
                       </span>
                     </button>
                   );
@@ -501,7 +570,7 @@ export function App() {
 
             <div className="setup-row">
               <div className="setup-group">
-                <label>플레이어 1 탐구자</label>
+                <label>P1 카드 덱</label>
                 <select
                   value={p1Seeker}
                   onChange={(e) => setP1Seeker(e.target.value as SeekerId)}
@@ -514,7 +583,7 @@ export function App() {
                 </select>
               </div>
               <div className="setup-group">
-                <label>플레이어 2 탐구자</label>
+                <label>P2 카드 덱</label>
                 <select
                   value={p2Seeker}
                   onChange={(e) => setP2Seeker(e.target.value as SeekerId)}
@@ -541,7 +610,7 @@ export function App() {
                 className="btn-phase-next"
                 onClick={() => handleRestart(bossId, p1Seeker, p2Seeker)}
               >
-                이 편성으로 레이드 시작
+                레이드 시작
               </button>
             </div>
           </div>
@@ -555,6 +624,14 @@ export function App() {
         p1Seeker={game.players[0].seekerId}
         p2Seeker={game.players[1].seekerId}
         onSimulateScan={(code) => handleScanCode(code)}
+      />
+
+      {/* AI AGENT SETTINGS MODAL */}
+      <AiSettingsModal
+        open={aiSettingsOpen}
+        config={aiConfig}
+        onClose={() => setAiSettingsOpen(false)}
+        onSave={handleSaveAiConfig}
       />
     </div>
   );

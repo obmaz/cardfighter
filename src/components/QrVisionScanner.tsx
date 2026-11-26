@@ -1,11 +1,13 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ChangeEvent } from 'react';
 import jsQR from 'jsqr';
-import { Camera, CameraOff, RefreshCw, Sparkles } from 'lucide-react';
+import { Bot, Camera, CameraOff, ImagePlus, RefreshCw, Sparkles } from 'lucide-react';
 import { sfx } from '../audio/sfx';
 
 interface QrVisionScannerProps {
   onScan: (qrCode: string) => void;
+  onCaptureForAi: (imageDataUrl: string) => void;
   onOpenTestDeck: () => void;
+  aiBusy?: boolean;
   disabled?: boolean;
   lastScanStatus?: {
     text: string;
@@ -25,11 +27,14 @@ declare global {
 
 export function QrVisionScanner({
   onScan,
+  onCaptureForAi,
   onOpenTestDeck,
+  aiBusy = false,
   disabled = false,
   lastScanStatus,
 }: QrVisionScannerProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const roiCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const motionCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const prevLumaRef = useRef<Uint8Array | null>(null);
@@ -43,7 +48,6 @@ export function QrVisionScanner({
   const [motionEnergy, setMotionEnergy] = useState(0);
   const [scanPulse, setScanPulse] = useState(false);
   const [lastDecodeMs, setLastDecodeMs] = useState<number | null>(null);
-  const [engineLabel, setEngineLabel] = useState<string>('jsQR ROI');
 
   const lastScannedRef = useRef<{ code: string; at: number }>({ code: '', at: 0 });
 
@@ -87,13 +91,9 @@ export function QrVisionScanner({
     if (typeof window !== 'undefined' && window.BarcodeDetector) {
       try {
         detector = new window.BarcodeDetector({ formats: ['qr_code'] });
-        setEngineLabel('BarcodeDetector + Vision');
       } catch {
         detector = null;
-        setEngineLabel('jsQR ROI + Vision');
       }
-    } else {
-      setEngineLabel('jsQR ROI + Vision');
     }
 
     const startCamera = async () => {
@@ -258,43 +258,40 @@ export function QrVisionScanner({
 
   const motionRingScale = 1 + motionEnergy * 0.14;
 
+  const captureFrameForAi = () => {
+    const video = videoRef.current;
+    if (!video || video.readyState < 2 || video.videoWidth === 0) return;
+    const canvas = document.createElement('canvas');
+    const maxW = 768;
+    const scale = Math.min(1, maxW / video.videoWidth);
+    canvas.width = Math.round(video.videoWidth * scale);
+    canvas.height = Math.round(video.videoHeight * scale);
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.86);
+    setScanPulse(true);
+    sfx.playScanBeep();
+    onCaptureForAi(dataUrl);
+    window.setTimeout(() => setScanPulse(false), 450);
+  };
+
+  const handleFileUpload = (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        sfx.playScanBeep();
+        onCaptureForAi(reader.result);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
   return (
     <div className={`qr-scanner-panel ${scanPulse ? 'scan-pulse' : ''}`}>
-      <div className="qr-scanner-header">
-        <div className="qr-scanner-title">
-          <Sparkles size={14} className="accent-amber" />
-          <span>QR · 비전 스캐너 ({facingMode === 'user' ? '전면' : '후면'})</span>
-          <span className="engine-pill">{engineLabel}</span>
-        </div>
-
-        <div className="qr-scanner-controls">
-          <button
-            type="button"
-            className="mini-btn"
-            onClick={() => setFacingMode((m) => (m === 'user' ? 'environment' : 'user'))}
-            title="전/후면 카메라 전환"
-          >
-            <RefreshCw size={13} />
-            전환
-          </button>
-          <button
-            type="button"
-            className="mini-btn"
-            onClick={() => setCameraActive((v) => !v)}
-          >
-            {cameraActive ? <CameraOff size={13} /> : <Camera size={13} />}
-            {cameraActive ? '일시정지' : '카메라 켜기'}
-          </button>
-          <button
-            type="button"
-            className="mini-btn mini-btn-accent"
-            onClick={onOpenTestDeck}
-          >
-            카드 QR / 시뮬레이터
-          </button>
-        </div>
-      </div>
-
       <div className="qr-viewfinder-box">
         {cameraActive && !cameraError ? (
           <>
@@ -321,33 +318,76 @@ export function QrVisionScanner({
               <span className="reticle-corner bl" />
               <span className="reticle-corner br" />
             </div>
-            <div className="vision-telemetry">
-              <span>모션 감지 {Math.round(motionEnergy * 100)}%</span>
-              {lastDecodeMs !== null && <span>인식 {lastDecodeMs}ms</span>}
-            </div>
           </>
         ) : (
           <div className="camera-fallback">
             <p>{cameraError ?? '카메라가 일시 정지되었습니다.'}</p>
-            <button
-              type="button"
-              className="btn-primary-sm"
-              onClick={onOpenTestDeck}
-            >
-              시뮬레이터 카드로 바로 테스트하기
-            </button>
           </div>
         )}
-      </div>
 
-      <div className="qr-status-strip">
-        {lastScanStatus ? (
-          <span className={lastScanStatus.isError ? 'status-err' : 'status-ok'}>
-            {lastScanStatus.text}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          style={{ display: 'none' }}
+          onChange={handleFileUpload}
+        />
+
+        {/* Compact floating controls top-right */}
+        <div className="scanner-overlay-controls">
+          <button
+            type="button"
+            className="mini-btn mini-btn-ai"
+            disabled={disabled || aiBusy || !cameraActive || Boolean(cameraError)}
+            onClick={captureFrameForAi}
+            title="카메라에 비춘 카드를 AI가 직접 읽고 공격"
+          >
+            <Bot size={12} />
+            {aiBusy ? 'AI 분석 중...' : 'AI 카드 인식'}
+          </button>
+          <button
+            type="button"
+            className="mini-btn"
+            disabled={disabled || aiBusy}
+            onClick={() => fileInputRef.current?.click()}
+            title="카드 사진 파일로 AI 테스트"
+          >
+            <ImagePlus size={12} />
+            사진
+          </button>
+          <button
+            type="button"
+            className="mini-btn"
+            onClick={() => setFacingMode((m) => (m === 'user' ? 'environment' : 'user'))}
+            title="전/후면 카메라 전환"
+          >
+            <RefreshCw size={12} />
+            {facingMode === 'user' ? '전면' : '후면'}
+          </button>
+          <button
+            type="button"
+            className="mini-btn"
+            onClick={() => setCameraActive((v) => !v)}
+          >
+            {cameraActive ? <CameraOff size={12} /> : <Camera size={12} />}
+          </button>
+          <button
+            type="button"
+            className="mini-btn mini-btn-accent"
+            onClick={onOpenTestDeck}
+          >
+            <Sparkles size={12} />
+            QR 테스트
+          </button>
+        </div>
+
+        {/* Compact floating status bottom */}
+        <div className="scanner-overlay-status">
+          <span className={lastScanStatus?.isError ? 'status-err' : 'status-ok'}>
+            {lastScanStatus?.text ?? '카드를 카메라에 비추고 [AI 카드 인식] 또는 QR 스캔'}
           </span>
-        ) : (
-          <span>카메라 15cm 앞에 카드 QR을 비추거나 [카드 QR / 시뮬레이터]를 여세요.</span>
-        )}
+          {lastDecodeMs !== null && <span className="decode-ms">{lastDecodeMs}ms</span>}
+        </div>
       </div>
     </div>
   );

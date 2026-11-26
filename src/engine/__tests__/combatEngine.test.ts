@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  applyAiCardAction,
   createInitialGameState,
   declareExhaustion,
   proceedToMaintenance,
@@ -118,5 +119,29 @@ describe('Kinfire Delve QR Boss Raid Combat Engine', () => {
     state = startNextRound(state);
     expect(state.round).toBe(2);
     expect(state.phase).toBe('coop_turn');
+  });
+
+  it('executes Vision AI card action against shields, guard, and battleCry', () => {
+    const init = createInitialGameState('vainglory_core', 'khor', 'asha');
+    const { state, error } = applyAiCardAction(
+      init,
+      {
+        cardName: '화염의 대검',
+        color: 'red',
+        skillTitle: '화염 일섬',
+        damage: 6,
+        guard: 2,
+        disruptChallenge: false,
+        specialNote: '강력한 붉은 참격',
+        battleCry: '불꽃의 칼날로 붉은 방벽을 부순다!',
+      },
+      zeroDiceRng,
+    );
+
+    expect(error).toBeUndefined();
+    expect(state.boss.shields.red).toBe(0);
+    expect(state.boss.hp).toBe(48); // 6 - 4 shield = 2 HP damage
+    expect(state.teamProtection).toBe(2);
+    expect(state.lastAiAction?.cardName).toBe('화염의 대검');
   });
 });

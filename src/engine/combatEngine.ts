@@ -1,6 +1,7 @@
 import { BOSS_TEMPLATES, createInitialBossState } from '../data/bosses';
 import { CARD_BY_ID, SEEKER_ROSTER, getAllowedColors } from '../data/cards';
 import type {
+  AiCardAction,
   BaseColor,
   BossId,
   CardDef,
@@ -59,6 +60,7 @@ export function createInitialGameState(
     },
     roundColorCounts: { red: 0, green: 0, blue: 0 },
     lastDiceRoll: null,
+    lastAiAction: null,
     pendingColorChoice: null,
     logs: [],
     effectQueue: [
@@ -191,19 +193,64 @@ export function scanCard(
   chosenColor?: BaseColor,
   rng: RngFn = Math.random,
 ): { state: GameState; error?: string } {
-  if (prevState.phase !== 'coop_turn') {
-    return {
-      state: prevState,
-      error: '현재는 [탐구자 협력 턴] 페이즈가 아닙니다.',
-    };
-  }
-
   const qrCode = rawQrCode.trim().toUpperCase();
   const card = CARD_BY_ID[qrCode];
   if (!card) {
     return {
       state: prevState,
       error: `등록되지 않은 카드 QR 코드입니다: ${qrCode}`,
+    };
+  }
+  return resolveCardExecution(prevState, qrCode, card, chosenColor, rng);
+}
+
+export function applyAiCardAction(
+  prevState: GameState,
+  action: AiCardAction,
+  rng: RngFn = Math.random,
+): { state: GameState; error?: string } {
+  const safeDamage = Math.max(1, Math.min(15, Math.round(action.damage)));
+  const safeGuard = Math.max(0, Math.min(5, Math.round(action.guard)));
+  const virtualCard: CardDef = {
+    id: `AI_VISION_${action.color.toUpperCase()}`,
+    seeker: 'shared',
+    name: action.skillTitle || action.cardName,
+    color: action.color,
+    power: safeDamage,
+    boostValue: Math.max(1, Math.min(5, Math.round(safeDamage * 0.6))),
+    protection: safeGuard,
+    diceCount: 0,
+    keywords: action.disruptChallenge ? ['disrupt'] : ['strike'],
+    description: action.specialNote || action.battleCry,
+  };
+
+  const result = resolveCardExecution(
+    prevState,
+    `AI:${action.cardName}`,
+    virtualCard,
+    action.color === 'lantern' ? undefined : action.color,
+    rng,
+  );
+  return {
+    state: {
+      ...result.state,
+      lastAiAction: action,
+    },
+    error: result.error,
+  };
+}
+
+function resolveCardExecution(
+  prevState: GameState,
+  qrCode: string,
+  card: CardDef,
+  chosenColor?: BaseColor,
+  rng: RngFn = Math.random,
+): { state: GameState; error?: string } {
+  if (prevState.phase !== 'coop_turn') {
+    return {
+      state: prevState,
+      error: '현재는 [탐구자 협력 턴] 페이즈가 아닙니다.',
     };
   }
 
