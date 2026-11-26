@@ -17,17 +17,20 @@ import {
 import {
   BOSS_TEMPLATES,
   DIFFICULTY_META,
+  GAUNTLET_ORDER,
   getScaledBossStats,
 } from './data/bosses';
 import { SEEKER_ROSTER } from './data/cards';
 import { RELIC_CATALOG, RELIC_LIST } from './data/relics';
 import {
+  advanceGauntletStage,
   applyAiCardAction,
   clearPendingColorChoice,
   commitCurrentChain,
   createInitialGameState,
   declareExhaustion,
   estimateBossCounter,
+  getTacticalHint,
   proceedToMaintenance,
   resolveBossCounterPhase,
   scanCard,
@@ -91,9 +94,10 @@ export function App() {
   const [p2Seeker, setP2Seeker] = useState<SeekerId>('asha');
   const [relicId, setRelicId] = useState<RelicId>('prism_lens');
   const [difficulty, setDifficulty] = useState<DifficultyTier>('normal');
+  const [gauntletMode, setGauntletMode] = useState(false);
 
   const [game, setGame] = useState<GameState>(() =>
-    createInitialGameState('vainglory_core', 'khor', 'asha', 'prism_lens', 'normal'),
+    createInitialGameState('vainglory_core', 'khor', 'asha', 'prism_lens', 'normal', false),
   );
   const [muted, setMuted] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -267,6 +271,7 @@ export function App() {
     nextP2: SeekerId = p2Seeker,
     nextRelic: RelicId = relicId,
     nextDifficulty: DifficultyTier = difficulty,
+    nextGauntlet: boolean = gauntletMode,
   ) => {
     victoryRecordedRef.current = false;
     setBossId(nextBoss);
@@ -274,6 +279,7 @@ export function App() {
     setP2Seeker(nextP2);
     setRelicId(nextRelic);
     setDifficulty(nextDifficulty);
+    setGauntletMode(nextGauntlet);
     setGame(
       createInitialGameState(
         nextBoss,
@@ -281,10 +287,21 @@ export function App() {
         nextP2,
         nextRelic,
         nextDifficulty,
+        nextGauntlet,
       ),
     );
-    setScanStatus({ text: '레이드 시작! 카드를 스캔하세요.' });
+    setScanStatus({
+      text: nextGauntlet
+        ? '3연전 건틀릿 시작! 첫 번째 보스 출현!'
+        : '레이드 시작! 카드를 스캔하세요.',
+    });
     setSetupOpen(false);
+  };
+
+  const handleAdvanceGauntlet = () => {
+    victoryRecordedRef.current = false;
+    setGame((prev) => advanceGauntletStage(prev));
+    setScanStatus({ text: '다음 보스 출현! 팀 체력 +4 회복' });
   };
 
   const handleScanCode = useCallback(
@@ -331,6 +348,14 @@ export function App() {
 
   const bossTpl = BOSS_TEMPLATES[game.boss.id];
   const activeRelic = RELIC_CATALOG[game.relicId];
+  const scaledCurrentBoss = getScaledBossStats(game.boss.id, game.difficulty);
+  const phase2MarkerPct = Math.max(
+    5,
+    Math.min(
+      95,
+      Math.round((scaledCurrentBoss.phase2HpThreshold / game.boss.maxHp) * 100),
+    ),
+  );
   const bossHpPct = Math.max(0, Math.round((game.boss.hp / game.boss.maxHp) * 100));
   const teamHpPct = Math.max(0, Math.round((game.teamHp / game.maxTeamHp) * 100));
   const counterEst = estimateBossCounter(game.boss, game.teamProtection);
@@ -362,6 +387,13 @@ export function App() {
               className={`boss-hp-fill ${game.boss.phase === 2 ? 'phase2-hp' : ''}`}
               style={{ width: `${bossHpPct}%` }}
             />
+            {game.boss.phase === 1 && (
+              <span
+                className="phase2-threshold-marker"
+                style={{ left: `${phase2MarkerPct}%` }}
+                title={`PHASE 2 각성선 (HP ${scaledCurrentBoss.phase2HpThreshold})`}
+              />
+            )}
             <span className="boss-hp-text">
               {game.boss.hp} / {game.boss.maxHp} HP
             </span>
@@ -369,6 +401,11 @@ export function App() {
         </div>
 
         <div className="round-phase-cluster">
+          {game.gauntletMode && (
+            <div className="gauntlet-pill">
+              건틀릿 {game.gauntletStage + 1}/{GAUNTLET_ORDER.length}
+            </div>
+          )}
           {game.difficulty !== 'normal' && (
             <div className={`difficulty-pill difficulty-${game.difficulty}`}>
               {game.difficulty.toUpperCase()}
@@ -580,6 +617,7 @@ export function App() {
                 })}
               </div>
             </div>
+            <div className="tactical-hint-line">{getTacticalHint(game)}</div>
           </section>
 
           {/* Compact Recent Feed (max 4) */}
@@ -764,11 +802,28 @@ export function App() {
       {/* BOSS GIMMICK HELP MODAL */}
       {helpOpen && (
         <div className="modal-backdrop" onClick={() => setHelpOpen(false)}>
-          <div className="choice-modal" onClick={(e) => e.stopPropagation()}>
+          <div className="choice-modal help-modal" onClick={(e) => e.stopPropagation()}>
             <span className="modal-eyebrow">AETHERIA · 비전 보스 레이드</span>
             <h3>
               {game.boss.name} · {game.boss.subtitle}
             </h3>
+            <div className="reaction-cheatsheet">
+              <div className="cheat-pill cheat-melt">
+                <strong>빨강 + 파랑 = 과부하 융해</strong>
+                <small>피해 +3 · 전 보호막 -1</small>
+              </div>
+              <div className="cheat-pill cheat-chrono">
+                <strong>파랑 + 초록 = 시간 균열</strong>
+                <small>반격 -2 · 방어 +2 · 해제</small>
+              </div>
+              <div className="cheat-pill cheat-shatter">
+                <strong>빨강 + 초록 = 파쇄 치명타</strong>
+                <small>위력 ×1.5 증폭</small>
+              </div>
+            </div>
+            <p className="cheat-rules-line">
+              그로기: 라운드 내 반응 2회 또는 3보호막 모두 파쇄 (반격 무효 · 피해 +25%) | 트리플 체인: 부스트 2장 연결 (+4 · 공명 +15)
+            </p>
             <ul className="gimmick-list">
               {bossTpl.gimmickSummary.map((line, idx) => (
                 <li key={idx}>{line}</li>
@@ -833,6 +888,18 @@ export function App() {
               </div>
             </div>
 
+            {game.phase === 'victory' &&
+              game.gauntletMode &&
+              game.gauntletStage === GAUNTLET_ORDER.length - 1 && (
+                <div className="gauntlet-complete-banner">
+                  <Trophy size={14} />
+                  <strong>
+                    3연전 건틀릿 완전 제패! · 총합{' '}
+                    {game.gauntletTotalScore + raidGrade.score}점
+                  </strong>
+                </div>
+              )}
+
             {bossRecord && (
               <div className="codex-record-bar">
                 <Trophy size={13} className="accent-amber" />
@@ -844,13 +911,25 @@ export function App() {
             )}
 
             <div className="result-actions">
-              <button
-                type="button"
-                className="btn-phase-next"
-                onClick={() => handleRestart()}
-              >
-                다시 도전
-              </button>
+              {game.phase === 'victory' &&
+              game.gauntletMode &&
+              game.gauntletStage < GAUNTLET_ORDER.length - 1 ? (
+                <button
+                  type="button"
+                  className="btn-phase-next btn-gauntlet-next"
+                  onClick={handleAdvanceGauntlet}
+                >
+                  다음 보스 진격! ({game.gauntletStage + 2}/{GAUNTLET_ORDER.length})
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="btn-phase-next"
+                  onClick={() => handleRestart()}
+                >
+                  다시 도전
+                </button>
+              )}
               <button
                 type="button"
                 className="btn-ghost"
@@ -869,6 +948,31 @@ export function App() {
           <div className="setup-modal" onClick={(e) => e.stopPropagation()}>
             <span className="modal-eyebrow">AETHERIA · 비전 보스 레이드</span>
             <h3>보스 및 덱 편성</h3>
+            <div className="setup-group">
+              <label>레이드 모드</label>
+              <div className="mode-toggle-row">
+                <button
+                  type="button"
+                  className={`mode-toggle-btn ${!gauntletMode ? 'selected' : ''}`}
+                  onClick={() => setGauntletMode(false)}
+                >
+                  단일 보스
+                </button>
+                <button
+                  type="button"
+                  className={`mode-toggle-btn ${gauntletMode ? 'selected' : ''}`}
+                  onClick={() => setGauntletMode(true)}
+                >
+                  3연전 건틀릿 (보스 러시)
+                </button>
+              </div>
+              {gauntletMode && (
+                <div className="gauntlet-preview-strip">
+                  바인글로리 코어 → 칼로스 프라임 → 크로노스 웜 (연전 시 공명·유물 유지, 팀 체력 +4 회복)
+                </div>
+              )}
+            </div>
+
             <div className="setup-group">
               <label>난이도 선택</label>
               <div className="difficulty-picker-grid">
@@ -903,7 +1007,10 @@ export function App() {
                     <button
                       key={id}
                       type="button"
-                      className={`setup-opt ${bossId === id ? 'selected' : ''}`}
+                      disabled={gauntletMode}
+                      className={`setup-opt ${
+                        !gauntletMode && bossId === id ? 'selected' : ''
+                      }`}
                       onClick={() => setBossId(id)}
                     >
                       <div className="setup-opt-top">
@@ -988,10 +1095,17 @@ export function App() {
                 type="button"
                 className="btn-phase-next"
                 onClick={() =>
-                  handleRestart(bossId, p1Seeker, p2Seeker, relicId, difficulty)
+                  handleRestart(
+                    bossId,
+                    p1Seeker,
+                    p2Seeker,
+                    relicId,
+                    difficulty,
+                    gauntletMode,
+                  )
                 }
               >
-                레이드 시작
+                {gauntletMode ? '3연전 건틀릿 시작' : '레이드 시작'}
               </button>
             </div>
           </div>

@@ -1,11 +1,13 @@
 import {
   BOSS_TEMPLATES,
+  GAUNTLET_ORDER,
   createBossIntent,
   createInitialBossState,
   getBossIntentByType,
   getScaledBossStats,
 } from '../data/bosses';
 import { CARD_BY_ID, SEEKER_ROSTER, getAllowedColors } from '../data/cards';
+import { computeRaidGrade } from './raidCodex';
 import type {
   AiCardAction,
   BaseColor,
@@ -56,11 +58,13 @@ export function createInitialGameState(
   p2Seeker: SeekerId = 'asha',
   relicId: RelicId = 'prism_lens',
   difficulty: DifficultyTier = 'normal',
+  gauntletMode = false,
 ): GameState {
+  const effectiveBossId = gauntletMode ? GAUNTLET_ORDER[0] : bossId;
   return {
-    boss: createInitialBossState(bossId, difficulty),
+    boss: createInitialBossState(effectiveBossId, difficulty),
     round: 1,
-    maxRounds: BOSS_TEMPLATES[bossId].maxRounds,
+    maxRounds: BOSS_TEMPLATES[effectiveBossId].maxRounds,
     phase: 'coop_turn',
     teamHp: 10,
     maxTeamHp: 10,
@@ -68,6 +72,9 @@ export function createInitialGameState(
     synergyGauge: 0,
     relicId,
     difficulty,
+    gauntletMode,
+    gauntletStage: 0,
+    gauntletTotalScore: 0,
     fieldEcho: null,
     lastReaction: null,
     stats: {
@@ -94,8 +101,15 @@ export function createInitialGameState(
       {
         id: 1,
         kind: 'boss_enrage',
-        color: bossId === 'kalos_prime' ? 'void' : 'red',
-        label: `${BOSS_TEMPLATES[bossId].name} 조우! 1라운드 시작`,
+        color:
+          effectiveBossId === 'kalos_prime'
+            ? 'void'
+            : effectiveBossId === 'chronos_wyrm'
+              ? 'lantern'
+              : 'red',
+        label: gauntletMode
+          ? `건틀릿 1/${GAUNTLET_ORDER.length}: ${BOSS_TEMPLATES[effectiveBossId].name} 조우!`
+          : `${BOSS_TEMPLATES[effectiveBossId].name} 조우! 1라운드 시작`,
       },
     ],
     nextEventId: 2,
@@ -1496,4 +1510,110 @@ export function startNextRound(prevState: GameState): GameState {
   });
 
   return state;
+}
+
+export function advanceGauntletStage(prevState: GameState): GameState {
+  if (
+    prevState.phase !== 'victory' ||
+    !prevState.gauntletMode ||
+    prevState.gauntletStage >= GAUNTLET_ORDER.length - 1
+  ) {
+    return prevState;
+  }
+
+  const stageScore = computeRaidGrade(prevState).score;
+  const nextStage = prevState.gauntletStage + 1;
+  const nextBossId = GAUNTLET_ORDER[nextStage];
+  const nextBoss = createInitialBossState(nextBossId, prevState.difficulty);
+
+  let state: GameState = {
+    ...prevState,
+    boss: nextBoss,
+    round: 1,
+    maxRounds: BOSS_TEMPLATES[nextBossId].maxRounds,
+    phase: 'coop_turn',
+    teamHp: Math.min(prevState.maxTeamHp, prevState.teamHp + 4),
+    teamProtection: prevState.relicId === 'aegis_core' ? 3 : 0,
+    gauntletStage: nextStage,
+    gauntletTotalScore: prevState.gauntletTotalScore + stageScore,
+    fieldEcho: null,
+    lastReaction: null,
+    roundColorCounts: { red: 0, green: 0, blue: 0 },
+    pendingColorChoice: null,
+    endReason: null,
+    activeChain: {
+      ownerSlot: 0,
+      mainCard: null,
+      resolvedColor: null,
+      boostCards: [],
+    },
+    players: [
+      {
+        ...prevState.players[0],
+        actedThisRound: false,
+        lanternCharged: false,
+        cardsInHandEstimate: 7,
+      },
+      {
+        ...prevState.players[1],
+        actedThisRound: false,
+        lanternCharged: false,
+        cardsInHandEstimate: 7,
+      },
+    ],
+  };
+
+  state = pushEvent(state, {
+    kind: 'boss_enrage',
+    color:
+      nextBossId === 'kalos_prime'
+        ? 'void'
+        : nextBossId === 'chronos_wyrm'
+          ? 'lantern'
+          : 'red',
+    label: `건틀릿 ${nextStage + 1}/${GAUNTLET_ORDER.length}: ${nextBoss.name} 출현! (팀 체력 +4)`,
+  });
+
+  return state;
+}
+
+const CHALLENGE_COLOR_NAME: Record<BaseColor, string> = {
+  red: '빨강',
+  green: '초록',
+  blue: '파랑',
+};
+
+export function getTacticalHint(state: GameState): string {
+  if (state.phase !== 'coop_turn') {
+    return '스페이스바 또는 하단 버튼으로 다음 페이즈를 진행하세요.';
+  }
+  if (state.synergyGauge >= 100) {
+    return '공명 게이지 100%! 하단 [성좌 공명 발동!]으로 무적 관통 10 피해!';
+  }
+  if (state.players.some((p) => p.lanternCharged)) {
+    return '랜턴 충전 완료! 랜턴 카드를 스캔해 강력한 일격을 가하세요.';
+  }
+  if (state.boss.invulnerable) {
+    return '보스 무적 결계 중 — 파랑 플라스크 파쇄 또는 공명 100%로 관통하세요.';
+  }
+  if (state.boss.challenges.length > 0) {
+    const req = CHALLENGE_COLOR_NAME[state.boss.challenges[0].requiredColor];
+    return `방해 챌린지 출현! [${req}]/방해 제거 카드로 해제하세요.`;
+  }
+  if (
+    state.boss.id === 'chronos_wyrm' &&
+    state.boss.temporalStance === 'accelerate'
+  ) {
+    return '가속 태세! 파랑+초록 [시간 균열]로 +4 추가 피해 & 역행 전환!';
+  }
+  if (state.boss.primedElement === 'red') {
+    return '불꽃 원소 대기 중 — 파랑(과부하 융해) 또는 초록(파쇄 치명타) 카드로 원소 반응!';
+  }
+  if (state.boss.primedElement === 'green') {
+    return '기교 원소 대기 중 — 빨강(파쇄 치명타) 또는 파랑(시간 균열) 카드로 원소 반응!';
+  }
+  if (state.boss.primedElement === 'blue') {
+    return '지혜 원소 대기 중 — 빨강(과부하 융해) 또는 초록(시간 균열) 카드로 원소 반응!';
+  }
+  return '카드를 스캔해 원소를 부여하고 3장 콤보 체인을 노리세요!';
 }

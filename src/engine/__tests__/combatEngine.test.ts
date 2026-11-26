@@ -10,12 +10,14 @@ import {
   isAiConfigured,
   testAiConnection,
 } from '../../ai/visionAgent';
-import { createBossIntent, getBossIntentByType, getScaledBossStats } from '../../data/bosses';
+import { GAUNTLET_ORDER, createBossIntent, getBossIntentByType, getScaledBossStats } from '../../data/bosses';
 import {
+  advanceGauntletStage,
   applyAiCardAction,
   createInitialGameState,
   declareExhaustion,
   estimateBossCounter,
+  getTacticalHint,
   proceedToMaintenance,
   resolveBossCounterPhase,
   scanCard,
@@ -808,5 +810,122 @@ describe('Kinfire Delve QR Boss Raid Combat Engine', () => {
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+
+  it('supports 3-Boss Rush Gauntlet Mode progression with HP heal, carried Synergy, and score accumulation', () => {
+    // Even if another bossId is passed, gauntletMode forces GAUNTLET_ORDER[0]
+    let state = createInitialGameState(
+      'chronos_wyrm',
+      'khor',
+      'asha',
+      'aegis_core',
+      'heroic',
+      true,
+    );
+    expect(GAUNTLET_ORDER).toEqual(['vainglory_core', 'kalos_prime', 'chronos_wyrm']);
+    expect(state.gauntletMode).toBe(true);
+    expect(state.gauntletStage).toBe(0);
+    expect(state.boss.id).toBe('vainglory_core');
+
+    // Guard: advanceGauntletStage does nothing before victory
+    expect(advanceGauntletStage(state).boss.id).toBe('vainglory_core');
+
+    // Simulate Stage 1 victory with partial HP (4/10), synergyGauge 75, round 3
+    const stage1Win = {
+      ...state,
+      phase: 'victory' as const,
+      round: 3,
+      teamHp: 4,
+      synergyGauge: 75,
+    };
+    const stage1Score = computeRaidGrade(stage1Win).score;
+
+    state = advanceGauntletStage(stage1Win);
+    expect(state.gauntletStage).toBe(1);
+    expect(state.boss.id).toBe('kalos_prime');
+    expect(state.boss.maxHp).toBe(54); // heroic Kalos (45 * 1.2)
+    expect(state.round).toBe(1);
+    expect(state.phase).toBe('coop_turn');
+    expect(state.teamHp).toBe(8); // 4 + 4 heal
+    expect(state.teamProtection).toBe(3); // aegis_core re-applies
+    expect(state.synergyGauge).toBe(75); // carried over
+    expect(state.gauntletTotalScore).toBe(stage1Score);
+
+    // Clear Stage 2 -> advance to Stage 3 (chronos_wyrm)
+    const stage2Win = {
+      ...state,
+      phase: 'victory' as const,
+      round: 4,
+      teamHp: 9,
+      synergyGauge: 100,
+    };
+    state = advanceGauntletStage(stage2Win);
+    expect(state.gauntletStage).toBe(2);
+    expect(state.boss.id).toBe('chronos_wyrm');
+    expect(state.teamHp).toBe(10); // capped at maxTeamHp
+
+    // Cannot advance past final stage
+    const finalWin = { ...state, phase: 'victory' as const };
+    expect(advanceGauntletStage(finalWin)).toBe(finalWin);
+  });
+
+  it('returns prioritized tactical hints from getTacticalHint across combat states', () => {
+    const base = createInitialGameState('vainglory_core', 'khor', 'asha');
+    expect(getTacticalHint(base)).toContain('콤보 체인');
+
+    // Non-coop_turn phase
+    expect(getTacticalHint({ ...base, phase: 'boss_counter' })).toContain('스페이스바');
+
+    // Synergy 100% highest priority in coop_turn
+    expect(
+      getTacticalHint({
+        ...base,
+        synergyGauge: 100,
+        boss: { ...base.boss, invulnerable: true },
+      }),
+    ).toContain('성좌 공명 발동');
+
+    // Lantern charged
+    const lanternState = {
+      ...base,
+      players: [
+        { ...base.players[0], lanternCharged: true },
+        base.players[1],
+      ] as typeof base.players,
+    };
+    expect(getTacticalHint(lanternState)).toContain('랜턴 충전 완료');
+
+    // Kalos invulnerable
+    const kalos = createInitialGameState('kalos_prime', 'khor', 'roland');
+    expect(getTacticalHint(kalos)).toContain('무적 결계');
+
+    // Active challenge
+    const challengeState = {
+      ...base,
+      boss: {
+        ...base.boss,
+        challenges: [
+          {
+            id: 'CH1',
+            name: '쐐기',
+            requiredColor: 'green' as const,
+            penaltyDamage: 2,
+            description: '제거',
+          },
+        ],
+      },
+    };
+    expect(getTacticalHint(challengeState)).toContain('[초록]');
+
+    // Chronos accelerate stance
+    const chronos = createInitialGameState('chronos_wyrm', 'khor', 'asha');
+    expect(getTacticalHint(chronos)).toContain('시간 균열');
+
+    // Primed element
+    const primedRed = {
+      ...base,
+      boss: { ...base.boss, primedElement: 'red' as const },
+    };
+    expect(getTacticalHint(primedRed)).toContain('과부하 융해');
   });
 });

@@ -274,6 +274,9 @@ export interface GameState {
   synergyGauge: number;
   relicId: RelicId;
   difficulty: DifficultyTier;
+  gauntletMode: boolean;
+  gauntletStage: number;
+  gauntletTotalScore: number;
   fieldEcho: FieldEchoState | null;
   lastReaction: LastReactionInfo | null;
   stats: RaidStats;

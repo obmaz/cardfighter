@@ -9,6 +9,12 @@ import type {
   ShieldPool,
 } from '../types/game';
 
+export const GAUNTLET_ORDER: BossId[] = [
+  'vainglory_core',
+  'kalos_prime',
+  'chronos_wyrm',
+];
+
 export const DIFFICULTY_META: Record<
   DifficultyTier,
   {
