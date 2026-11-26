@@ -1,4 +1,11 @@
-import type { BossClearRecord, BossId, GameState, RaidRank } from '../types/game';
+import { DIFFICULTY_META } from '../data/bosses';
+import type {
+  BossClearRecord,
+  BossId,
+  DifficultyTier,
+  GameState,
+  RaidRank,
+} from '../types/game';
 
 const CODEX_STORAGE_KEY = 'aetheria_raid_codex_v1';
 
@@ -7,6 +14,12 @@ const RANK_ORDER: Record<RaidRank, number> = {
   A: 3,
   B: 2,
   C: 1,
+};
+
+const DIFFICULTY_ORDER: Record<DifficultyTier, number> = {
+  abyss: 3,
+  heroic: 2,
+  normal: 1,
 };
 
 export function computeRaidGrade(state: GameState): {
@@ -24,13 +37,16 @@ export function computeRaidGrade(state: GameState): {
 
   const exhaustCount =
     state.players[0].exhaustionCount + state.players[1].exhaustionCount;
+  const difficultyBonus =
+    DIFFICULTY_META[state.difficulty ?? 'normal'].scoreBonus;
   const score = Math.max(
     0,
     50 +
       (state.maxRounds - state.round) * 8 +
       state.teamHp * 3 +
       state.stats.reactionsTriggered * 5 +
-      state.boss.staggerCount * 10 -
+      state.boss.staggerCount * 10 +
+      difficultyBonus -
       exhaustCount * 6,
   );
 
@@ -83,6 +99,13 @@ export function recordVictoryToCodex(
     ? Math.max(prev.bestScore, grade.score)
     : grade.score;
 
+  const currentDifficulty: DifficultyTier = state.difficulty ?? 'normal';
+  const prevDifficulty: DifficultyTier = prev?.bestDifficulty ?? 'normal';
+  const bestDifficulty =
+    DIFFICULTY_ORDER[prevDifficulty] > DIFFICULTY_ORDER[currentDifficulty]
+      ? prevDifficulty
+      : currentDifficulty;
+
   const updated: Partial<Record<BossId, BossClearRecord>> = {
     ...codex,
     [bossId]: {
@@ -91,6 +114,7 @@ export function recordVictoryToCodex(
       bestRank,
       bestRounds,
       bestScore,
+      bestDifficulty,
       lastRelicId: state.relicId,
       updatedAt: new Date().toISOString(),
     },

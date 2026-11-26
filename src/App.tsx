@@ -14,7 +14,11 @@ import {
   VolumeX,
   Zap,
 } from 'lucide-react';
-import { BOSS_TEMPLATES } from './data/bosses';
+import {
+  BOSS_TEMPLATES,
+  DIFFICULTY_META,
+  getScaledBossStats,
+} from './data/bosses';
 import { SEEKER_ROSTER } from './data/cards';
 import { RELIC_CATALOG, RELIC_LIST } from './data/relics';
 import {
@@ -51,6 +55,7 @@ import type {
   BaseColor,
   BossClearRecord,
   BossId,
+  DifficultyTier,
   GameState,
   RelicId,
   RoundPhase,
@@ -78,9 +83,10 @@ export function App() {
   const [p1Seeker, setP1Seeker] = useState<SeekerId>('khor');
   const [p2Seeker, setP2Seeker] = useState<SeekerId>('asha');
   const [relicId, setRelicId] = useState<RelicId>('prism_lens');
+  const [difficulty, setDifficulty] = useState<DifficultyTier>('normal');
 
   const [game, setGame] = useState<GameState>(() =>
-    createInitialGameState('vainglory_core', 'khor', 'asha', 'prism_lens'),
+    createInitialGameState('vainglory_core', 'khor', 'asha', 'prism_lens', 'normal'),
   );
   const [muted, setMuted] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -219,13 +225,23 @@ export function App() {
     nextP1: SeekerId = p1Seeker,
     nextP2: SeekerId = p2Seeker,
     nextRelic: RelicId = relicId,
+    nextDifficulty: DifficultyTier = difficulty,
   ) => {
     victoryRecordedRef.current = false;
     setBossId(nextBoss);
     setP1Seeker(nextP1);
     setP2Seeker(nextP2);
     setRelicId(nextRelic);
-    setGame(createInitialGameState(nextBoss, nextP1, nextP2, nextRelic));
+    setDifficulty(nextDifficulty);
+    setGame(
+      createInitialGameState(
+        nextBoss,
+        nextP1,
+        nextP2,
+        nextRelic,
+        nextDifficulty,
+      ),
+    );
     setScanStatus({ text: '레이드 시작! 카드를 스캔하세요.' });
     setSetupOpen(false);
   };
@@ -312,6 +328,11 @@ export function App() {
         </div>
 
         <div className="round-phase-cluster">
+          {game.difficulty !== 'normal' && (
+            <div className={`difficulty-pill difficulty-${game.difficulty}`}>
+              {game.difficulty.toUpperCase()}
+            </div>
+          )}
           {game.boss.phase === 2 && (
             <div className="phase2-pill">PHASE 2</div>
           )}
@@ -795,10 +816,34 @@ export function App() {
             <span className="modal-eyebrow">AETHERIA · 비전 보스 레이드</span>
             <h3>보스 및 덱 편성</h3>
             <div className="setup-group">
+              <label>난이도 선택</label>
+              <div className="difficulty-picker-grid">
+                {(['normal', 'heroic', 'abyss'] as DifficultyTier[]).map((tier) => {
+                  const meta = DIFFICULTY_META[tier];
+                  return (
+                    <button
+                      key={tier}
+                      type="button"
+                      className={`difficulty-opt difficulty-opt-${tier} ${
+                        difficulty === tier ? 'selected' : ''
+                      }`}
+                      onClick={() => setDifficulty(tier)}
+                      title={meta.description}
+                    >
+                      <strong>{meta.label}</strong>
+                      <small>{meta.description}</small>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="setup-group">
               <label>보스 선택</label>
               <div className="setup-options">
                 {(Object.keys(BOSS_TEMPLATES) as BossId[]).map((id) => {
                   const tpl = BOSS_TEMPLATES[id];
+                  const scaled = getScaledBossStats(id, difficulty);
                   const rec = codex[id];
                   return (
                     <button
@@ -812,11 +857,15 @@ export function App() {
                         {rec && (
                           <span className="codex-clear-pill">
                             최고 {rec.bestRank} · {rec.clears}승
+                            {rec.bestDifficulty && rec.bestDifficulty !== 'normal'
+                              ? ` (${rec.bestDifficulty.toUpperCase()})`
+                              : ''}
                           </span>
                         )}
                       </div>
                       <span>
-                        {tpl.subtitle} · {tpl.maxHp} HP
+                        {tpl.subtitle} · {scaled.maxHp} HP · 방패 {scaled.baseShields.red}/
+                        {scaled.baseShields.green}/{scaled.baseShields.blue}
                       </span>
                     </button>
                   );
@@ -884,7 +933,9 @@ export function App() {
               <button
                 type="button"
                 className="btn-phase-next"
-                onClick={() => handleRestart(bossId, p1Seeker, p2Seeker, relicId)}
+                onClick={() =>
+                  handleRestart(bossId, p1Seeker, p2Seeker, relicId, difficulty)
+                }
               >
                 레이드 시작
               </button>
@@ -900,6 +951,7 @@ export function App() {
         p1Seeker={game.players[0].seekerId}
         p2Seeker={game.players[1].seekerId}
         onSimulateScan={(code) => handleScanCode(code)}
+        onSimulateAiImage={(img) => void handleCaptureForAi(img)}
       />
 
       {/* AI AGENT SETTINGS MODAL */}

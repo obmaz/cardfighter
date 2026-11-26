@@ -3,6 +3,7 @@ import {
   createBossIntent,
   createInitialBossState,
   getBossIntentByType,
+  getScaledBossStats,
 } from '../data/bosses';
 import { CARD_BY_ID, SEEKER_ROSTER, getAllowedColors } from '../data/cards';
 import type {
@@ -15,6 +16,7 @@ import type {
   CombatEffectEvent,
   DiceDieResult,
   DiceRollSummary,
+  DifficultyTier,
   GameState,
   PlayerState,
   ReactionKind,
@@ -52,9 +54,10 @@ export function createInitialGameState(
   p1Seeker: SeekerId = 'khor',
   p2Seeker: SeekerId = 'asha',
   relicId: RelicId = 'prism_lens',
+  difficulty: DifficultyTier = 'normal',
 ): GameState {
   return {
-    boss: createInitialBossState(bossId),
+    boss: createInitialBossState(bossId, difficulty),
     round: 1,
     maxRounds: BOSS_TEMPLATES[bossId].maxRounds,
     phase: 'coop_turn',
@@ -63,6 +66,7 @@ export function createInitialGameState(
     teamProtection: relicId === 'aegis_core' ? 3 : 0,
     synergyGauge: 0,
     relicId,
+    difficulty,
     lastReaction: null,
     stats: {
       totalDamageDealt: 0,
@@ -260,7 +264,12 @@ function removeMatchingChallenge(
 function checkAndApplyPhase2(prevState: GameState): GameState {
   const { boss } = prevState;
   const tpl = BOSS_TEMPLATES[boss.id];
-  if (boss.hp <= 0 || boss.phase2Triggered || boss.hp > tpl.phase2HpThreshold) {
+  const scaled = getScaledBossStats(boss.id, prevState.difficulty);
+  if (
+    boss.hp <= 0 ||
+    boss.phase2Triggered ||
+    boss.hp > scaled.phase2HpThreshold
+  ) {
     return prevState;
   }
 
@@ -742,6 +751,8 @@ function resolveCardExecution(
   );
   const isFirstBoostOfRound =
     isBoost && !state.logs.some((l) => l.round === state.round && l.isBoost);
+  const isChainFinisher =
+    isBoost && state.activeChain.boostCards.length === 1;
   const chronoDialTriggered =
     isFirstBoostOfRound && state.relicId === 'chrono_dial';
   const prismReactionBonus =
@@ -759,7 +770,8 @@ function resolveCardExecution(
       : baseRawAttack) +
     prismReactionBonus +
     (chronoDialTriggered ? 2 : 0) +
-    (chronosStanceFlip ? 4 : 0);
+    (chronosStanceFlip ? 4 : 0) +
+    (isChainFinisher ? 4 : 0);
 
   // Decrement estimated hand count for scanned player
   const actingPlayer = state.players[ownerSlot];
@@ -928,7 +940,8 @@ function resolveCardExecution(
     (shieldBrokenNow ? 15 : 0) +
     (reaction && state.relicId === 'prism_lens' ? 5 : 0) +
     (chronoDialTriggered ? 10 : 0) +
-    (isRewindBonusActive ? 15 : 0);
+    (isRewindBonusActive ? 15 : 0) +
+    (isChainFinisher ? 15 : 0);
   const nextSynergyGauge = Math.min(100, state.synergyGauge + synergyGain);
   const nextCounterWeakened =
     state.boss.counterWeakened + (reaction?.counterWeakened ?? 0);
@@ -951,19 +964,22 @@ function resolveCardExecution(
 
   const reactionBark = justStaggered
     ? '크아악...! 자세가 무너졌다!'
-    : chronosStanceFlip
-      ? '시간의 궤도가 역전되었다!'
-      : reaction?.kind === 'melt'
-        ? '이 열기… 장갑이 녹아내리고 있어!'
-        : reaction?.kind === 'chrono'
-          ? '시간의 틈새에 공격이 둔화된다…!'
-          : reaction?.kind === 'shatter'
-            ? '크악! 치명적인 파쇄의 일격!'
-            : state.boss.lastBark;
+    : isChainFinisher
+      ? '셋의 힘이 하나로 얽힌다고?!'
+      : chronosStanceFlip
+        ? '시간의 궤도가 역전되었다!'
+        : reaction?.kind === 'melt'
+          ? '이 열기… 장갑이 녹아내리고 있어!'
+          : reaction?.kind === 'chrono'
+            ? '시간의 틈새에 공격이 둔화된다…!'
+            : reaction?.kind === 'shatter'
+              ? '크악! 치명적인 파쇄의 일격!'
+              : state.boss.lastBark;
 
   const totalEffectiveDamage = shieldDamage + hpDamage;
   const logNoteParts: string[] = [];
   if (isBoost) logNoteParts.push(`부스트 +${card.boostValue}`);
+  if (isChainFinisher) logNoteParts.push('트리플 공명 피니시! (+4)');
   if (dice && dice.totalBonus > 0) logNoteParts.push(`주사위 +${dice.totalBonus}`);
   if (reaction) logNoteParts.push(`원소 공명[${reaction.title}]: ${reaction.detail}`);
   if (prismReactionBonus > 0) logNoteParts.push('프리즘 렌즈(+2 위력·+5 게이지)');
@@ -1100,6 +1116,14 @@ function resolveCardExecution(
       kind: 'boss_stagger',
       color: 'lantern',
       label: '보스 그로기! 반격 무효 & 피해 +25%',
+    });
+  }
+  if (isChainFinisher) {
+    state = pushEvent(state, {
+      kind: 'chain_finisher',
+      color: resolvedColor,
+      amount: totalEffectiveDamage,
+      label: '트리플 공명 피니시! +4',
     });
   }
 
@@ -1358,11 +1382,11 @@ export function startNextRound(prevState: GameState): GameState {
   }
 
   const nextRound = prevState.round + 1;
-  const tpl = BOSS_TEMPLATES[prevState.boss.id];
+  const scaled = getScaledBossStats(prevState.boss.id, prevState.difficulty);
   const nextShields = {
-    red: tpl.baseShields.red + prevState.boss.nextShieldBonus.red,
-    green: tpl.baseShields.green + prevState.boss.nextShieldBonus.green,
-    blue: tpl.baseShields.blue + prevState.boss.nextShieldBonus.blue,
+    red: scaled.baseShields.red + prevState.boss.nextShieldBonus.red,
+    green: scaled.baseShields.green + prevState.boss.nextShieldBonus.green,
+    blue: scaled.baseShields.blue + prevState.boss.nextShieldBonus.blue,
   };
   const nextIntent = createBossIntent(
     prevState.boss.id,

@@ -5,7 +5,7 @@ import {
   isAiConfigured,
   testAiConnection,
 } from '../../ai/visionAgent';
-import { createBossIntent, getBossIntentByType } from '../../data/bosses';
+import { createBossIntent, getBossIntentByType, getScaledBossStats } from '../../data/bosses';
 import {
   applyAiCardAction,
   createInitialGameState,
@@ -51,11 +51,12 @@ describe('Kinfire Delve QR Boss Raid Combat Engine', () => {
     state = scanCard(state, 'KD_KHOR_R01', undefined, zeroDiceRng).state;
     // Boost 1: KD_ASHA_R01 (boostValue 2) -> 2 HP dmg (47)
     state = scanCard(state, 'KD_ASHA_R01', undefined, zeroDiceRng).state;
-    // Boost 2: KD_ASHA_R02 (boostValue 3) -> 3 HP dmg (44)
+    // Boost 2: KD_ASHA_R02 (boostValue 3) + Chain Finisher (+4) -> 7 HP dmg (40)
     state = scanCard(state, 'KD_ASHA_R02', undefined, zeroDiceRng).state;
 
     expect(state.activeChain.boostCards).toHaveLength(2);
-    expect(state.boss.hp).toBe(44);
+    expect(state.boss.hp).toBe(40);
+    expect(state.effectQueue.some((e) => e.kind === 'chain_finisher')).toBe(true);
     // 3 red cards in one round triggers Overheat on Vainglory Core!
     expect(state.boss.isOverheated).toBe(true);
     expect(state.boss.overheatedColor).toBe('red');
@@ -466,9 +467,9 @@ describe('Kinfire Delve QR Boss Raid Combat Engine', () => {
     dial = scanCard(dial, 'KD_ASHA_R01', undefined, zeroDiceRng).state; // 1st boost (boostValue 2 + 2 dial = 4 dmg -> HP 45, gauge +20+10 = 60)
     expect(dial.boss.hp).toBe(45);
     expect(dial.synergyGauge).toBe(60);
-    dial = scanCard(dial, 'KD_ASHA_R02', undefined, zeroDiceRng).state; // 2nd boost (boostValue 3 -> HP 42, gauge +20 = 80)
-    expect(dial.boss.hp).toBe(42);
-    expect(dial.synergyGauge).toBe(80);
+    dial = scanCard(dial, 'KD_ASHA_R02', undefined, zeroDiceRng).state; // 2nd boost (boostValue 3 + 4 Chain Finisher -> HP 38, gauge +20 + 15 Finisher = 95)
+    expect(dial.boss.hp).toBe(38);
+    expect(dial.synergyGauge).toBe(95);
 
     // 4. vision_amplifier: AI Vision card gains +2 damage and +1 guard
     const vis = createInitialGameState('vainglory_core', 'khor', 'asha', 'vision_amplifier');
@@ -614,5 +615,85 @@ describe('Kinfire Delve QR Boss Raid Combat Engine', () => {
     expect(action.color).toBe('blue'); // complements primed 'red' for Melt
     expect(action.damage).toBeGreaterThanOrEqual(1);
     expect(action.reactionHint).toBeTruthy();
+  });
+
+  it('scales boss HP, shields, baseCounterAttack, Phase 2 threshold, and RaidGrade score across Heroic and Abyss difficulties', () => {
+    const heroicStats = getScaledBossStats('vainglory_core', 'heroic');
+    expect(heroicStats.maxHp).toBe(60); // 50 * 1.2
+    expect(heroicStats.phase2HpThreshold).toBe(30); // round(25 * 1.2)
+    expect(heroicStats.baseShields).toEqual({ red: 4, green: 3, blue: 3 }); // lowest green +1
+    expect(heroicStats.baseCounterAttack).toBe(2);
+
+    expect(getScaledBossStats('kalos_prime', 'heroic').baseShields).toEqual({
+      red: 3,
+      green: 3,
+      blue: 4,
+    });
+    expect(getScaledBossStats('chronos_wyrm', 'heroic').baseShields).toEqual({
+      red: 3,
+      green: 4,
+      blue: 3,
+    });
+
+    const abyssState = createInitialGameState(
+      'vainglory_core',
+      'khor',
+      'asha',
+      'prism_lens',
+      'abyss',
+    );
+    expect(abyssState.difficulty).toBe('abyss');
+    expect(abyssState.boss.maxHp).toBe(68); // ceil(50 * 1.35)
+    expect(abyssState.boss.shields).toEqual({ red: 5, green: 3, blue: 4 });
+    expect(abyssState.boss.baseCounterAttack).toBe(3);
+
+    // Phase 2 triggers at scaled threshold (round(25 * 1.35) = 34)
+    let p2Test = {
+      ...abyssState,
+      boss: {
+        ...abyssState.boss,
+        hp: 36,
+        shields: { red: 0, green: 0, blue: 0 },
+      },
+    };
+    p2Test = scanCard(p2Test, 'KD_KHOR_R01', undefined, zeroDiceRng).state; // 5 dmg -> 31 <= 34
+    expect(p2Test.boss.phase).toBe(2);
+
+    // startNextRound preserves Abyss shield scaling
+    let roundState = resolveBossCounterPhase(abyssState);
+    roundState = proceedToMaintenance(roundState);
+    roundState = startNextRound(roundState);
+    expect(roundState.boss.shields).toEqual({ red: 5, green: 3, blue: 4 });
+
+    // computeRaidGrade adds +15 for heroic and +30 for abyss
+    const normalWin = {
+      ...createInitialGameState('vainglory_core', 'khor', 'asha', 'prism_lens', 'normal'),
+      phase: 'victory' as const,
+      round: 8,
+      teamHp: 1,
+    };
+    const heroicWin = { ...normalWin, difficulty: 'heroic' as const };
+    const abyssWin = { ...normalWin, difficulty: 'abyss' as const };
+    const normalScore = computeRaidGrade(normalWin).score;
+    expect(computeRaidGrade(heroicWin).score).toBe(normalScore + 15);
+    expect(computeRaidGrade(abyssWin).score).toBe(normalScore + 30);
+  });
+
+  it('triggers Full 3-Card Chain Finisher on 2nd boost with +4 dmg, +15 synergy, bark, and chain_finisher event', () => {
+    let state = createInitialGameState('vainglory_core', 'khor', 'asha', 'vision_amplifier');
+    state = scanCard(state, 'KD_KHOR_R01', undefined, zeroDiceRng).state; // main red 5 -> 1 HP dmg (49), gauge 30
+    state = scanCard(state, 'KD_ASHA_R01', undefined, zeroDiceRng).state; // boost 1 (2) -> HP 47, gauge 50
+    expect(state.effectQueue.some((e) => e.kind === 'chain_finisher')).toBe(false);
+
+    state = scanCard(state, 'KD_ASHA_R02', undefined, zeroDiceRng).state; // boost 2 (3) + Finisher (+4) -> 7 dmg (HP 40), gauge +20+15 = 85
+    expect(state.boss.hp).toBe(40);
+    expect(state.synergyGauge).toBe(85);
+    expect(state.boss.lastBark).toBe('셋의 힘이 하나로 얽힌다고?!');
+    expect(state.logs[0]?.note).toContain('트리플 공명 피니시! (+4)');
+    expect(
+      state.effectQueue.some(
+        (e) => e.kind === 'chain_finisher' && e.label.includes('트리플 공명 피니시'),
+      ),
+    ).toBe(true);
   });
 });

@@ -48,6 +48,8 @@ export interface RelicDef {
 
 export type TemporalStance = 'accelerate' | 'rewind';
 
+export type DifficultyTier = 'normal' | 'heroic' | 'abyss';
+
 export type RaidRank = 'S' | 'A' | 'B' | 'C';
 
 export interface RaidStats {
@@ -65,6 +67,7 @@ export interface BossClearRecord {
   bestRank: RaidRank;
   bestRounds: number;
   bestScore: number;
+  bestDifficulty?: DifficultyTier;
   lastRelicId: RelicId;
   updatedAt: string;
 }
@@ -175,7 +178,8 @@ export interface CombatEffectEvent {
     | 'elemental_reaction'
     | 'synergy_ultimate'
     | 'phase_two'
-    | 'boss_stagger';
+    | 'boss_stagger'
+    | 'chain_finisher';
   color: BaseColor | 'lantern' | 'void';
   amount?: number;
   label: string;
@@ -247,6 +251,7 @@ export interface GameState {
   teamProtection: number;
   synergyGauge: number;
   relicId: RelicId;
+  difficulty: DifficultyTier;
   lastReaction: LastReactionInfo | null;
   stats: RaidStats;
   players: [PlayerState, PlayerState];

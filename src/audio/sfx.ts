@@ -126,6 +126,13 @@ class SoundEngine {
     this.playTone(1320, 990, 0.22, 'triangle', 0.14, 0.1);
   }
 
+  public playChainFinisher() {
+    this.playTone(440, 554, 0.14, 'triangle', 0.15, 0);
+    this.playTone(554, 659, 0.15, 'triangle', 0.15, 0.06);
+    this.playTone(659, 880, 0.28, 'sine', 0.19, 0.12);
+    this.playTone(110, 55, 0.3, 'sine', 0.16, 0.12);
+  }
+
   public playEffect(ev: CombatEffectEvent) {
     switch (ev.kind) {
       case 'card_hit':
@@ -172,6 +179,9 @@ class SoundEngine {
         break;
       case 'boss_stagger':
         this.playBossStagger();
+        break;
+      case 'chain_finisher':
+        this.playChainFinisher();
         break;
     }
   }

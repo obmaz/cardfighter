@@ -1,11 +1,46 @@
 import type {
+  BaseColor,
   BossId,
   BossIntent,
   BossIntentType,
   BossState,
+  DifficultyTier,
   RngFn,
   ShieldPool,
 } from '../types/game';
+
+export const DIFFICULTY_META: Record<
+  DifficultyTier,
+  {
+    id: DifficultyTier;
+    label: string;
+    hpMultiplier: number;
+    scoreBonus: number;
+    description: string;
+  }
+> = {
+  normal: {
+    id: 'normal',
+    label: '표준 (Normal)',
+    hpMultiplier: 1.0,
+    scoreBonus: 0,
+    description: '기본 밸런스 레이드',
+  },
+  heroic: {
+    id: 'heroic',
+    label: '영웅 (Heroic)',
+    hpMultiplier: 1.2,
+    scoreBonus: 15,
+    description: '보스 체력 +20%, 취약 보호막 +1, 클리어 점수 +15',
+  },
+  abyss: {
+    id: 'abyss',
+    label: '심연 (Abyss)',
+    hpMultiplier: 1.35,
+    scoreBonus: 30,
+    description: '보스 체력 +35%, 전 보호막 +1, 기본 반격 +1, 클리어 점수 +30',
+  },
+};
 
 export interface BossTemplate {
   id: BossId;
@@ -154,8 +189,65 @@ export const BOSS_TEMPLATES: Record<BossId, BossTemplate> = {
   },
 };
 
-export function createInitialBossState(bossId: BossId): BossState {
+export function getScaledBossStats(
+  bossId: BossId,
+  difficulty: DifficultyTier = 'normal',
+): {
+  maxHp: number;
+  phase2HpThreshold: number;
+  baseShields: ShieldPool;
+  baseCounterAttack: number;
+} {
   const tpl = BOSS_TEMPLATES[bossId];
+  const meta = DIFFICULTY_META[difficulty];
+
+  const maxHp =
+    difficulty === 'normal'
+      ? tpl.maxHp
+      : Math.ceil(tpl.maxHp * meta.hpMultiplier);
+  const phase2HpThreshold =
+    difficulty === 'normal'
+      ? tpl.phase2HpThreshold
+      : Math.round(tpl.phase2HpThreshold * meta.hpMultiplier);
+
+  let baseShields: ShieldPool = { ...tpl.baseShields };
+  if (difficulty === 'heroic') {
+    const tieOrder: BaseColor[] = ['green', 'blue', 'red'];
+    let lowestColor: BaseColor = 'green';
+    for (const c of tieOrder) {
+      if (baseShields[c] < baseShields[lowestColor]) {
+        lowestColor = c;
+      }
+    }
+    baseShields = {
+      ...baseShields,
+      [lowestColor]: baseShields[lowestColor] + 1,
+    };
+  } else if (difficulty === 'abyss') {
+    baseShields = {
+      red: baseShields.red + 1,
+      green: baseShields.green + 1,
+      blue: baseShields.blue + 1,
+    };
+  }
+
+  const baseCounterAttack =
+    tpl.baseCounterAttack + (difficulty === 'abyss' ? 1 : 0);
+
+  return {
+    maxHp,
+    phase2HpThreshold,
+    baseShields,
+    baseCounterAttack,
+  };
+}
+
+export function createInitialBossState(
+  bossId: BossId,
+  difficulty: DifficultyTier = 'normal',
+): BossState {
+  const tpl = BOSS_TEMPLATES[bossId];
+  const scaled = getScaledBossStats(bossId, difficulty);
   const initialIntent = createBossIntent(bossId, 1, 1);
   const nextIntentText =
     bossId === 'kalos_prime'
@@ -168,10 +260,10 @@ export function createInitialBossState(bossId: BossId): BossState {
     id: tpl.id,
     name: tpl.name,
     subtitle: tpl.subtitle,
-    hp: tpl.maxHp,
-    maxHp: tpl.maxHp,
-    shields: { ...tpl.baseShields },
-    maxShields: { ...tpl.baseShields },
+    hp: scaled.maxHp,
+    maxHp: scaled.maxHp,
+    shields: { ...scaled.baseShields },
+    maxShields: { ...scaled.baseShields },
     nextShieldBonus: { red: 0, green: 0, blue: 0 },
     isUnstable: false,
     isOverheated: false,
@@ -181,7 +273,7 @@ export function createInitialBossState(bossId: BossId): BossState {
     wellTriggered: false,
     challenges: [],
     nextIntentText,
-    baseCounterAttack: tpl.baseCounterAttack,
+    baseCounterAttack: scaled.baseCounterAttack,
     phase: 1,
     phase2Triggered: false,
     primedElement: null,

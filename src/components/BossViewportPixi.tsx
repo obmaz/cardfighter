@@ -324,6 +324,16 @@ export function BossViewportPixi({
           }
           g.circle(0, 0, 56).stroke({ width: 6, color: 0xfef08a, alpha: 0.95 });
           g.circle(0, 0, 82).stroke({ width: 4, color: 0x38bdf8, alpha: 0.85 });
+        } else if (kind === 'chain_finisher') {
+          for (let i = 0; i < 6; i++) {
+            const a = (i / 6) * Math.PI * 2;
+            const rayColor = i % 2 === 0 ? hex : 0xfbbf24;
+            g.moveTo(0, 0)
+              .lineTo(Math.cos(a) * 118, Math.sin(a) * 118)
+              .stroke({ width: 5, color: rayColor, alpha: 0.92 });
+          }
+          g.circle(0, 0, 52).stroke({ width: 6, color: hex, alpha: 0.95 });
+          g.circle(0, 0, 74).stroke({ width: 4, color: 0xfef08a, alpha: 0.88 });
         } else if (kind === 'phase_two' || kind === 'boss_stagger') {
           g.circle(0, 0, 58).fill({ color: hex, alpha: 0.28 });
           g.circle(0, 0, 70).stroke({ width: 7, color: hex, alpha: 0.95 });
@@ -349,7 +359,10 @@ export function BossViewportPixi({
         const life =
           kind === 'lantern_beam' || kind === 'synergy_ultimate'
             ? 0.62
-            : kind === 'elemental_reaction' || kind === 'phase_two' || kind === 'boss_stagger'
+            : kind === 'elemental_reaction' ||
+                kind === 'phase_two' ||
+                kind === 'boss_stagger' ||
+                kind === 'chain_finisher'
               ? 0.48
               : 0.32;
         const expandSpeed =
@@ -358,6 +371,7 @@ export function BossViewportPixi({
             : kind === 'elemental_reaction' ||
                 kind === 'phase_two' ||
                 kind === 'boss_stagger' ||
+                kind === 'chain_finisher' ||
                 kind === 'shield_break'
               ? 3.2
               : 1.4;
@@ -778,6 +792,15 @@ export function BossViewportPixi({
             spawnSlash(cx, cy, hex, 'shield_break');
             spawnParticles(cx, cy, hex, 32, 310);
             spawnFloater(cx, cy - 20, ev.label, 0xffffff);
+          } else if (ev.kind === 'chain_finisher') {
+            shakeTimer = 0.36;
+            shakeStrength = 12;
+            flashTimer = 0.14;
+            bossRecoil = 1.45;
+            spawnSlash(cx, cy, hex, 'chain_finisher');
+            spawnParticles(cx, cy, hex, 28, 350);
+            spawnParticles(cx, cy, 0xfbbf24, 16, 320);
+            spawnFloater(cx, cy - 12, ev.label, 0xfef08a, 20);
           } else if (ev.kind === 'boss_stagger') {
             shakeTimer = 0.45;
             shakeStrength = 14;
