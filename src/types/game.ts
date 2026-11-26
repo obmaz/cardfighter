@@ -235,6 +235,7 @@ export interface BossState {
   staggered: boolean;
   roundReactions: number;
   staggerCount: number;
+  weaknessColor: BaseColor | null;
 }
 
 export interface AiCardAction {

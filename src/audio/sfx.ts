@@ -133,6 +133,11 @@ class SoundEngine {
     this.playTone(110, 55, 0.3, 'sine', 0.16, 0.12);
   }
 
+  public playUndo() {
+    this.playTone(660, 440, 0.12, 'sine', 0.1, 0);
+    this.playTone(440, 330, 0.14, 'sine', 0.1, 0.07);
+  }
+
   public playEffect(ev: CombatEffectEvent) {
     switch (ev.kind) {
       case 'card_hit':

@@ -5,6 +5,7 @@ import {
   createInitialBossState,
   getBossIntentByType,
   getScaledBossStats,
+  pickNextRoundWeakness,
 } from '../data/bosses';
 import { CARD_BY_ID, SEEKER_ROSTER, getAllowedColors } from '../data/cards';
 import { computeRaidGrade } from './raidCodex';
@@ -813,6 +814,7 @@ function resolveCardExecution(
     reaction?.kind === 'chrono' &&
     state.boss.id === 'chronos_wyrm' &&
     state.boss.temporalStance === 'accelerate';
+  const weaknessBonus = state.boss.weaknessColor === resolvedColor ? 2 : 0;
 
   const rawAttack =
     (reaction
@@ -824,7 +826,8 @@ function resolveCardExecution(
     (chronoDialTriggered ? 2 : 0) +
     (chronosStanceFlip ? 4 : 0) +
     (isChainFinisher ? 4 : 0) +
-    echoAttackBonus;
+    echoAttackBonus +
+    weaknessBonus;
 
   // Decrement estimated hand count for scanned player
   const actingPlayer = state.players[ownerSlot];
@@ -994,7 +997,8 @@ function resolveCardExecution(
     (reaction && state.relicId === 'prism_lens' ? 5 : 0) +
     (chronoDialTriggered ? 10 : 0) +
     (isRewindBonusActive ? 15 : 0) +
-    (isChainFinisher ? 15 : 0);
+    (isChainFinisher ? 15 : 0) +
+    (weaknessBonus > 0 ? 5 : 0);
   const nextSynergyGauge = Math.min(100, state.synergyGauge + synergyGain);
   const nextCounterWeakened =
     state.boss.counterWeakened + (reaction?.counterWeakened ?? 0);
@@ -1034,6 +1038,7 @@ function resolveCardExecution(
   const logNoteParts: string[] = [];
   if (isBoost) logNoteParts.push(`부스트 +${card.boostValue}`);
   if (isChainFinisher) logNoteParts.push('트리플 공명 피니시! (+4)');
+  if (weaknessBonus > 0) logNoteParts.push('약점 공략 (+2)');
   if (consumedEchoNote) logNoteParts.push(consumedEchoNote);
   if (dice && dice.totalBonus > 0) logNoteParts.push(`주사위 +${dice.totalBonus}`);
   if (reaction) logNoteParts.push(`원소 공명[${reaction.title}]: ${reaction.detail}`);
@@ -1494,6 +1499,10 @@ export function startNextRound(prevState: GameState): GameState {
       temporalStance: nextTemporalStance,
       staggered: false,
       roundReactions: 0,
+      weaknessColor: pickNextRoundWeakness(
+        prevState.roundColorCounts,
+        nextRound,
+      ),
       nextIntentText,
     },
   };
@@ -1614,6 +1623,10 @@ export function getTacticalHint(state: GameState): string {
   }
   if (state.boss.primedElement === 'blue') {
     return '지혜 원소 대기 중 — 빨강(과부하 융해) 또는 초록(시간 균열) 카드로 원소 반응!';
+  }
+  if (state.boss.weaknessColor) {
+    const weakName = CHALLENGE_COLOR_NAME[state.boss.weaknessColor];
+    return `라운드 약점 [${weakName}] 공략 시 피해 +2 & 공명 +5!`;
   }
   return '카드를 스캔해 원소를 부여하고 3장 콤보 체인을 노리세요!';
 }

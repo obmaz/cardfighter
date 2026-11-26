@@ -248,6 +248,26 @@ export function getScaledBossStats(
   };
 }
 
+export function pickNextRoundWeakness(
+  prevColorCounts: Record<BaseColor, number>,
+  nextRound: number,
+): BaseColor {
+  const minCount = Math.min(
+    prevColorCounts.red,
+    prevColorCounts.green,
+    prevColorCounts.blue,
+  );
+  const order: BaseColor[] = ['red', 'green', 'blue'];
+  const startIdx = ((nextRound % 3) + 3) % 3;
+  for (let offset = 0; offset < 3; offset++) {
+    const candidate = order[(startIdx + offset) % 3];
+    if (prevColorCounts[candidate] === minCount) {
+      return candidate;
+    }
+  }
+  return order[startIdx];
+}
+
 export function createInitialBossState(
   bossId: BossId,
   difficulty: DifficultyTier = 'normal',
@@ -290,5 +310,6 @@ export function createInitialBossState(
     staggered: false,
     roundReactions: 0,
     staggerCount: 0,
+    weaknessColor: null,
   };
 }

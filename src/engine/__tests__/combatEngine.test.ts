@@ -10,7 +10,19 @@ import {
   isAiConfigured,
   testAiConnection,
 } from '../../ai/visionAgent';
-import { GAUNTLET_ORDER, createBossIntent, getBossIntentByType, getScaledBossStats } from '../../data/bosses';
+import {
+  GAUNTLET_ORDER,
+  createBossIntent,
+  getBossIntentByType,
+  getScaledBossStats,
+  pickNextRoundWeakness,
+} from '../../data/bosses';
+import {
+  MAX_UNDO_STEPS,
+  clearUndoStack,
+  popUndoSnapshot,
+  pushUndoSnapshot,
+} from '../undoHistory';
 import {
   advanceGauntletStage,
   applyAiCardAction,
@@ -927,5 +939,58 @@ describe('Kinfire Delve QR Boss Raid Combat Engine', () => {
       boss: { ...base.boss, primedElement: 'red' as const },
     };
     expect(getTacticalHint(primedRed)).toContain('과부하 융해');
+  });
+
+  it('manages undoHistory snapshots with max 5 cap, LIFO pop, and clearUndoStack', () => {
+    let stack = clearUndoStack();
+    expect(stack).toEqual([]);
+    expect(popUndoSnapshot(stack)).toEqual({ previous: null, nextStack: [] });
+
+    const base = createInitialGameState('vainglory_core', 'khor', 'asha');
+    for (let i = 1; i <= 7; i++) {
+      stack = pushUndoSnapshot(stack, { ...base, nextEventId: i });
+    }
+    expect(stack).toHaveLength(MAX_UNDO_STEPS);
+    expect(stack[0]?.nextEventId).toBe(3); // kept 3..7
+    expect(stack[4]?.nextEventId).toBe(7);
+
+    const popped = popUndoSnapshot(stack);
+    expect(popped.previous?.nextEventId).toBe(7);
+    expect(popped.nextStack).toHaveLength(4);
+
+    expect(clearUndoStack()).toEqual([]);
+  });
+
+  it('assigns dynamic Round 2+ weaknessColor, adds +2 dmg & +5 synergy on hit, and surfaces in getTacticalHint', () => {
+    // Round 1 starts with null weaknessColor
+    let state = createInitialGameState('vainglory_core', 'khor', 'asha', 'vision_amplifier');
+    expect(state.boss.weaknessColor).toBeNull();
+
+    // pickNextRoundWeakness favors least-used color starting at nextRound % 3
+    expect(pickNextRoundWeakness({ red: 3, green: 1, blue: 2 }, 2)).toBe('green');
+    expect(pickNextRoundWeakness({ red: 0, green: 0, blue: 0 }, 2)).toBe('blue'); // 2 % 3 === 2 -> 'blue'
+    expect(pickNextRoundWeakness({ red: 2, green: 2, blue: 0 }, 3)).toBe('blue');
+
+    // Play 2 red cards in Round 1, advance to Round 2 -> minCount is 0 (green/blue), nextRound=2 -> startIdx=2 ('blue') -> weaknessColor = 'blue'
+    state = scanCard(state, 'KD_KHOR_R06', undefined, zeroDiceRng).state;
+    state = scanCard(state, 'KD_KHOR_R06', undefined, zeroDiceRng).state;
+    state = { ...state, teamProtection: 20 };
+    state = resolveBossCounterPhase(state);
+    state = proceedToMaintenance(state);
+    state = startNextRound(state);
+
+    expect(state.round).toBe(2);
+    expect(state.boss.weaknessColor).toBe('blue');
+    expect(getTacticalHint(state)).toContain('[파랑]');
+
+    // Hit weaknessColor ('blue') with KD_KHOR_B01 (power 3, blue shield 3) -> 3 + 2 weakness = 5 -> breaks blue shield (3) + 2 HP dmg!
+    // Synergy: +15 main + 15 shield break + 5 weakness = +35 (from 30 -> 65? Wait: R1 had 2 red cards: +15 + 20 = 35 -> 35 + 35 = 70)
+    const hpBefore = state.boss.hp;
+    const gaugeBefore = state.synergyGauge;
+    state = scanCard(state, 'KD_KHOR_B01', undefined, zeroDiceRng).state;
+    expect(state.boss.shields.blue).toBe(0);
+    expect(hpBefore - state.boss.hp).toBe(2);
+    expect(state.synergyGauge - gaugeBefore).toBe(35);
+    expect(state.logs[0]?.note).toContain('약점 공략 (+2)');
   });
 });

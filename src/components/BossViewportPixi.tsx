@@ -905,18 +905,21 @@ export function BossViewportPixi({
           value={boss.shields.red}
           max={boss.maxShields.red}
           color="red"
+          isWeakness={boss.weaknessColor === 'red'}
         />
         <ShieldPill
           label="GREEN"
           value={boss.shields.green}
           max={boss.maxShields.green}
           color="green"
+          isWeakness={boss.weaknessColor === 'green'}
         />
         <ShieldPill
           label={boss.id === 'kalos_prime' ? 'BLUE · 플라스크' : 'BLUE'}
           value={boss.shields.blue}
           max={boss.maxShields.blue}
           color="blue"
+          isWeakness={boss.weaknessColor === 'blue'}
         />
       </div>
 
@@ -1014,17 +1017,26 @@ function ShieldPill({
   value,
   max,
   color,
+  isWeakness = false,
 }: {
   label: string;
   value: number;
   max: number;
   color: BaseColor;
+  isWeakness?: boolean;
 }) {
   const pct = max > 0 ? Math.min(100, (value / max) * 100) : 0;
   return (
-    <div className={`shield-pill shield-${color} ${value === 0 ? 'shield-broken' : ''}`}>
+    <div
+      className={`shield-pill shield-${color} ${value === 0 ? 'shield-broken' : ''} ${
+        isWeakness ? 'shield-weakness' : ''
+      }`}
+    >
       <div className="shield-pill-top">
-        <span>{label}</span>
+        <span>
+          {label}
+          {isWeakness && <em className="shield-weak-tag">약점 +2</em>}
+        </span>
         <strong>{value === 0 ? '파괴!' : `${value}/${max}`}</strong>
       </div>
       <div className="shield-progress-track">

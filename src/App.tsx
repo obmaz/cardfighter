@@ -10,6 +10,7 @@ import {
   Sparkles,
   Swords,
   Trophy,
+  Undo2,
   Volume2,
   VolumeX,
   Zap,
@@ -47,6 +48,7 @@ import {
   loadAiGrimoire,
   recordAiCardToGrimoire,
 } from './engine/aiGrimoire';
+import { clearUndoStack, popUndoSnapshot, pushUndoSnapshot } from './engine/undoHistory';
 import {
   analyzeCardWithAI,
   isAiConfigured,
@@ -96,9 +98,26 @@ export function App() {
   const [difficulty, setDifficulty] = useState<DifficultyTier>('normal');
   const [gauntletMode, setGauntletMode] = useState(false);
 
-  const [game, setGame] = useState<GameState>(() =>
-    createInitialGameState('vainglory_core', 'khor', 'asha', 'prism_lens', 'normal', false),
-  );
+  const [{ game, undoStack }, setGameState] = useState<{ game: GameState; undoStack: GameState[] }>(() => ({
+    game: createInitialGameState('vainglory_core', 'khor', 'asha', 'prism_lens', 'normal', false),
+    undoStack: [],
+  }));
+  const setGame = useCallback((updater: GameState | ((g: GameState) => GameState)) => {
+    setGameState((prev) => ({
+      ...prev,
+      game: typeof updater === 'function' ? updater(prev.game) : updater,
+    }));
+  }, []);
+  const handleUndo = useCallback(() => {
+    setGameState((prev) => {
+      if (prev.game.phase !== 'coop_turn') return prev;
+      const { previous, nextStack } = popUndoSnapshot(prev.undoStack);
+      if (!previous) return prev;
+      sfx.playUndo();
+      setScanStatus({ text: '직전 행동을 되돌렸습니다.' });
+      return { game: previous, undoStack: nextStack };
+    });
+  }, []);
   const [muted, setMuted] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [setupOpen, setSetupOpen] = useState(false);
@@ -142,6 +161,19 @@ export function App() {
         return;
       }
 
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && !e.shiftKey) {
+        if (setupOpen || helpOpen || aiSettingsOpen || drawerOpen || game.pendingColorChoice) {
+          return;
+        }
+        const tag = (e.target as HTMLElement | null)?.tagName;
+        if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') {
+          return;
+        }
+        e.preventDefault();
+        handleUndo();
+        return;
+      }
+
       if (e.code === 'Space' && !e.repeat) {
         if (
           setupOpen ||
@@ -163,13 +195,19 @@ export function App() {
         }
         if (game.phase === 'coop_turn') {
           e.preventDefault();
-          setGame((g) => resolveBossCounterPhase(g));
+          setGameState((prev) => ({
+            game: resolveBossCounterPhase(prev.game),
+            undoStack: clearUndoStack(),
+          }));
         } else if (game.phase === 'boss_counter') {
           e.preventDefault();
           setGame((g) => proceedToMaintenance(g));
         } else if (game.phase === 'maintenance') {
           e.preventDefault();
-          setGame((g) => startNextRound(g));
+          setGameState((prev) => ({
+            game: startNextRound(prev.game),
+            undoStack: clearUndoStack(),
+          }));
         }
       }
     };
@@ -183,6 +221,8 @@ export function App() {
     setupOpen,
     game.pendingColorChoice,
     game.phase,
+    handleUndo,
+    setGame,
   ]);
 
   const handleSaveAiConfig = (next: AiAgentConfig) => {
@@ -206,16 +246,19 @@ export function App() {
       try {
         const action = await analyzeCardWithAI(imageDataUrl, game.boss, aiConfig);
         setGrimoire(recordAiCardToGrimoire(action));
-        setGame((prev) => {
-          const res = applyAiCardAction(prev, action);
+        setGameState((prev) => {
+          const res = applyAiCardAction(prev.game, action);
           if (res.error) {
             setScanStatus({ text: res.error, isError: true });
-          } else {
-            setScanStatus({
-              text: `[AI] ${action.cardName} → ${action.skillTitle} (${action.damage})`,
-            });
+            return { ...prev, game: res.state };
           }
-          return res.state;
+          setScanStatus({
+            text: `[AI] ${action.cardName} → ${action.skillTitle} (${action.damage})`,
+          });
+          return {
+            game: res.state,
+            undoStack: pushUndoSnapshot(prev.undoStack, prev.game),
+          };
         });
       } catch (err) {
         setScanStatus({
@@ -240,16 +283,19 @@ export function App() {
       specialNote: card.specialNote,
       battleCry: card.battleCry,
     };
-    setGame((prev) => {
-      const res = applyAiCardAction(prev, action);
+    setGameState((prev) => {
+      const res = applyAiCardAction(prev.game, action);
       if (res.error) {
         setScanStatus({ text: res.error, isError: true });
-      } else {
-        setScanStatus({
-          text: `[도감] ${action.cardName} → ${action.skillTitle} (${action.damage})`,
-        });
+        return { ...prev, game: res.state };
       }
-      return res.state;
+      setScanStatus({
+        text: `[도감] ${action.cardName} → ${action.skillTitle} (${action.damage})`,
+      });
+      return {
+        game: res.state,
+        undoStack: pushUndoSnapshot(prev.undoStack, prev.game),
+      };
     });
     setGrimoire(recordAiCardToGrimoire(action));
   }, []);
@@ -280,8 +326,8 @@ export function App() {
     setRelicId(nextRelic);
     setDifficulty(nextDifficulty);
     setGauntletMode(nextGauntlet);
-    setGame(
-      createInitialGameState(
+    setGameState({
+      game: createInitialGameState(
         nextBoss,
         nextP1,
         nextP2,
@@ -289,7 +335,8 @@ export function App() {
         nextDifficulty,
         nextGauntlet,
       ),
-    );
+      undoStack: clearUndoStack(),
+    });
     setScanStatus({
       text: nextGauntlet
         ? '3연전 건틀릿 시작! 첫 번째 보스 출현!'
@@ -300,43 +347,54 @@ export function App() {
 
   const handleAdvanceGauntlet = () => {
     victoryRecordedRef.current = false;
-    setGame((prev) => advanceGauntletStage(prev));
+    setGameState((prev) => ({
+      game: advanceGauntletStage(prev.game),
+      undoStack: clearUndoStack(),
+    }));
     setScanStatus({ text: '다음 보스 출현! 팀 체력 +4 회복' });
   };
 
   const handleScanCode = useCallback(
     (qrCode: string, chosenColor?: BaseColor) => {
-      setGame((prev) => {
-        const res = scanCard(prev, qrCode, chosenColor);
+      setGameState((prev) => {
+        const res = scanCard(prev.game, qrCode, chosenColor);
         if (res.error) {
           setScanStatus({ text: res.error, isError: true });
-        } else if (res.state.pendingColorChoice) {
+          return { ...prev, game: res.state };
+        }
+        if (res.state.pendingColorChoice) {
           setScanStatus({
             text: `${res.state.pendingColorChoice.card.name}: 속성 선택`,
           });
-        } else {
-          const latest = res.state.logs[0];
-          setScanStatus({
-            text: latest
-              ? `${latest.cardName}${latest.damageDealt > 0 ? ` (-${latest.damageDealt})` : ''}`
-              : `스캔: ${qrCode}`,
-          });
+          return { ...prev, game: res.state };
         }
-        return res.state;
+        const latest = res.state.logs[0];
+        setScanStatus({
+          text: latest
+            ? `${latest.cardName}${latest.damageDealt > 0 ? ` (-${latest.damageDealt})` : ''}`
+            : `스캔: ${qrCode}`,
+        });
+        return {
+          game: res.state,
+          undoStack: pushUndoSnapshot(prev.undoStack, prev.game),
+        };
       });
     },
     [],
   );
 
   const handleTriggerSynergy = () => {
-    setGame((prev) => {
-      const res = triggerSynergyUltimate(prev);
+    setGameState((prev) => {
+      const res = triggerSynergyUltimate(prev.game);
       if (res.error) {
         setScanStatus({ text: res.error, isError: true });
-      } else {
-        setScanStatus({ text: '성좌 공명 발동! 보스에게 관통 피해 & 팀 방어 +3' });
+        return { ...prev, game: res.state };
       }
-      return res.state;
+      setScanStatus({ text: '성좌 공명 발동! 보스에게 관통 피해 & 팀 방어 +3' });
+      return {
+        game: res.state,
+        undoStack: pushUndoSnapshot(prev.undoStack, prev.game),
+      };
     });
   };
 
@@ -576,15 +634,32 @@ export function App() {
               <span className="hud-label">
                 <Sparkles size={14} /> 콤보 체인
               </span>
-              {game.activeChain.mainCard && (
+              <div className="hud-head-actions">
                 <button
                   type="button"
                   className="mini-btn"
-                  onClick={() => setGame((g) => commitCurrentChain(g))}
+                  disabled={undoStack.length === 0 || game.phase !== 'coop_turn'}
+                  onClick={handleUndo}
+                  title="직전 행동 실행 취소 (Ctrl+Z)"
                 >
-                  확정
+                  <Undo2 size={11} />
+                  되돌리기
                 </button>
-              )}
+                {game.activeChain.mainCard && (
+                  <button
+                    type="button"
+                    className="mini-btn"
+                    onClick={() =>
+                      setGameState((prev) => ({
+                        game: commitCurrentChain(prev.game),
+                        undoStack: pushUndoSnapshot(prev.undoStack, prev.game),
+                      }))
+                    }
+                  >
+                    확정
+                  </button>
+                )}
+              </div>
             </div>
 
             <div className="combo-slots">
@@ -690,7 +765,15 @@ export function App() {
                 disabled={
                   game.phase !== 'maintenance' && game.phase !== 'coop_turn'
                 }
-                onClick={() => setGame((g) => declareExhaustion(g, player.slot))}
+                onClick={() =>
+                  setGameState((prev) => ({
+                    game: declareExhaustion(prev.game, player.slot),
+                    undoStack:
+                      prev.game.phase === 'coop_turn'
+                        ? pushUndoSnapshot(prev.undoStack, prev.game)
+                        : prev.undoStack,
+                  }))
+                }
               >
                 탈진
               </button>
@@ -738,7 +821,12 @@ export function App() {
             <button
               type="button"
               className="btn-phase-next"
-              onClick={() => setGame((g) => resolveBossCounterPhase(g))}
+              onClick={() =>
+                setGameState((prev) => ({
+                  game: resolveBossCounterPhase(prev.game),
+                  undoStack: clearUndoStack(),
+                }))
+              }
             >
               턴 종료 → 보스 반격
             </button>
@@ -756,7 +844,12 @@ export function App() {
             <button
               type="button"
               className="btn-phase-next btn-next-round"
-              onClick={() => setGame((g) => startNextRound(g))}
+              onClick={() =>
+                setGameState((prev) => ({
+                  game: startNextRound(prev.game),
+                  undoStack: clearUndoStack(),
+                }))
+              }
             >
               {game.round >= game.maxRounds
                 ? '결과 판정'

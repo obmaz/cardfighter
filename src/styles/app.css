@@ -2235,6 +2235,30 @@ button:disabled {
   padding: 6px 9px;
 }
 
+/* MILESTONE 7: UNDO ACTIONS & ROUND WEAKNESS SHIELD */
+.hud-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.shield-weakness {
+  border-color: rgba(251, 191, 36, 0.85);
+  box-shadow: 0 0 12px rgba(251, 191, 36, 0.35);
+}
+
+.shield-weak-tag {
+  font-style: normal;
+  font-size: 9px;
+  font-weight: 800;
+  margin-left: 5px;
+  padding: 1px 5px;
+  border-radius: 999px;
+  background: rgba(251, 191, 36, 0.25);
+  color: #fde68a;
+  border: 1px solid rgba(251, 191, 36, 0.65);
+}
+
 @keyframes cutInFade {
   0% {
     opacity: 0;
