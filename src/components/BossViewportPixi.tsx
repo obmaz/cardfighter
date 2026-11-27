@@ -7,7 +7,7 @@ import {
   Sprite,
   Text,
   TextStyle,
-  type Texture,
+  Texture,
 } from 'pixi.js';
 import type {
   BaseColor,
@@ -25,6 +25,7 @@ interface BossViewportPixiProps {
   effectQueue: CombatEffectEvent[];
   lastDiceRoll: DiceRollSummary | null;
   latestLog?: ScanLogEntry | null;
+  minimalHud?: boolean;
 }
 
 interface Particle {
@@ -100,11 +101,30 @@ async function tryLoadTexture(url: string): Promise<Texture | null> {
   }
 }
 
+function createRadialFeatherTexture(size = 256): Texture {
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  if (ctx) {
+    const c = size / 2;
+    const grad = ctx.createRadialGradient(c, c, size * 0.18, c, c, size * 0.49);
+    grad.addColorStop(0, 'rgba(255,255,255,1)');
+    grad.addColorStop(0.55, 'rgba(255,255,255,0.92)');
+    grad.addColorStop(0.82, 'rgba(255,255,255,0.35)');
+    grad.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, size, size);
+  }
+  return Texture.from(canvas);
+}
+
 export function BossViewportPixi({
   boss,
   effectQueue,
   lastDiceRoll,
   latestLog = null,
+  minimalHud = true,
 }: BossViewportPixiProps) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const bossRef = useRef<BossState>(boss);
@@ -218,11 +238,14 @@ export function BossViewportPixi({
       const gearInner = new Graphics();
       const bossBody = new Graphics();
       const bossArtHolder = new Container();
-      const bossMask = new Graphics();
-      bossMask.circle(0, 0, 72).fill({ color: 0xffffff });
+      const featherTex = createRadialFeatherTexture(256);
+      const bossMask = new Sprite(featherTex);
+      bossMask.anchor.set(0.5);
+      bossMask.width = 236;
+      bossMask.height = 236;
       bossArtHolder.mask = bossMask;
       const bossFlashOverlay = new Graphics();
-      bossFlashOverlay.circle(0, 0, 72).fill({ color: 0xffffff, alpha: 0.72 });
+      bossFlashOverlay.circle(0, 0, 108).fill({ color: 0xffffff, alpha: 0.68 });
       bossFlashOverlay.visible = false;
       const barrierGfx = new Graphics();
       const staggerRingGfx = new Graphics();
@@ -420,7 +443,8 @@ export function BossViewportPixi({
 
       const drawBoss = (w: number, h: number, b: BossState) => {
         const cx = w * 0.5;
-        const cy = h * 0.48;
+        const cy = h * 0.40;
+        const bossScale = Math.max(0.95, Math.min(1.95, h / 430));
         const isPhase2 = b.phase === 2;
         const speedMult = isPhase2 ? 1.85 : 1;
 
@@ -440,13 +464,13 @@ export function BossViewportPixi({
             : 0xffffff;
         }
 
-        // Sync optional boss portrait sprite inside circular medallion
+        // Sync boss portrait sprite with generous size & soft radial blend
         const tex = bossTextures[b.id];
         if (tex && activeSpriteBossId !== b.id) {
           bossArtHolder.removeChildren().forEach((c) => c.destroy());
           const spr = new Sprite(tex);
           spr.anchor.set(0.5);
-          const scale = 152 / Math.min(tex.width || 152, tex.height || 152);
+          const scale = 236 / Math.min(tex.width || 236, tex.height || 236);
           spr.scale.set(scale);
           bossArtHolder.addChild(spr);
           activeBossSprite = spr;
@@ -456,6 +480,8 @@ export function BossViewportPixi({
           activeBossSprite = null;
           activeSpriteBossId = null;
         }
+
+        bossLayer.scale.set(bossScale);
 
         if (activeBossSprite) {
           activeBossSprite.tint = isPhase2
@@ -546,33 +572,33 @@ export function BossViewportPixi({
           const teeth = 12;
           for (let i = 0; i < teeth; i++) {
             const a = (i / teeth) * Math.PI * 2;
-            const x1 = Math.cos(a) * 86;
-            const y1 = Math.sin(a) * 86;
-            const x2 = Math.cos(a) * 98;
-            const y2 = Math.sin(a) * 98;
+            const x1 = Math.cos(a) * 116;
+            const y1 = Math.sin(a) * 116;
+            const x2 = Math.cos(a) * 128;
+            const y2 = Math.sin(a) * 128;
             gearOuter.moveTo(x1, y1).lineTo(x2, y2).stroke({
-              width: 7,
+              width: 6,
               color: b.isOverheated || isPhase2 ? 0xf97316 : 0xd97706,
-              alpha: 0.92,
+              alpha: 0.45,
             });
           }
-          gearOuter.circle(0, 0, 86).stroke({
-            width: 4,
+          gearOuter.circle(0, 0, 116).stroke({
+            width: 3,
             color: isPhase2 ? 0xff4d4f : 0xf59e0b,
-            alpha: 0.88,
+            alpha: 0.42,
           });
           gearOuter.rotation = elapsed * (b.isOverheated ? 1.1 : 0.4) * speedMult;
 
-          gearInner.circle(0, 0, 77).stroke({
-            width: 2.5,
+          gearInner.circle(0, 0, 102).stroke({
+            width: 2,
             color: b.isUnstable ? 0x38bdf8 : isPhase2 ? 0xfca5a5 : 0xfde68a,
-            alpha: 0.9,
+            alpha: 0.35,
           });
           for (let i = 0; i < 6; i++) {
             const a = (i / 6) * Math.PI * 2;
             gearInner
-              .circle(Math.cos(a) * 77, Math.sin(a) * 77, 4)
-              .fill({ color: 0xfef3c7 });
+              .circle(Math.cos(a) * 102, Math.sin(a) * 102, 3.5)
+              .fill({ color: 0xfef3c7, alpha: 0.6 });
           }
           gearInner.rotation = -elapsed * 0.65 * speedMult;
 
@@ -600,12 +626,6 @@ export function BossViewportPixi({
               .circle(0, 0, 16 + Math.sin(elapsed * 5) * 2)
               .fill({ color: coreColor, alpha: 0.9 });
             bossBody.circle(0, 0, 7).fill({ color: 0xffffff, alpha: 0.95 });
-          } else {
-            bossBody.circle(0, 0, 73).stroke({
-              width: 3.5,
-              color: isPhase2 ? 0xff4d4f : 0xf59e0b,
-              alpha: 0.95,
-            });
           }
         } else if (b.id === 'chronos_wyrm') {
           // Chronos Wyrm: Concentric golden-cyan time rings + hourglass core
@@ -613,31 +633,31 @@ export function BossViewportPixi({
           const primaryRing = b.temporalStance === 'rewind' ? 0x38bdf8 : 0xfbbf24;
           const secondaryRing = b.temporalStance === 'rewind' ? 0xfbbf24 : 0x38bdf8;
 
-          gearOuter.circle(0, 0, 92).stroke({
-            width: 3,
+          gearOuter.circle(0, 0, 118).stroke({
+            width: 2.5,
             color: primaryRing,
-            alpha: 0.82,
+            alpha: 0.45,
           });
           for (let i = 0; i < 12; i++) {
             const a = (i / 12) * Math.PI * 2;
-            const inner = i % 3 === 0 ? 82 : 87;
+            const inner = i % 3 === 0 ? 108 : 113;
             gearOuter
               .moveTo(Math.cos(a) * inner, Math.sin(a) * inner)
-              .lineTo(Math.cos(a) * 95, Math.sin(a) * 95)
-              .stroke({ width: i % 3 === 0 ? 3 : 1.5, color: primaryRing, alpha: 0.92 });
+              .lineTo(Math.cos(a) * 122, Math.sin(a) * 122)
+              .stroke({ width: i % 3 === 0 ? 2.5 : 1.2, color: primaryRing, alpha: 0.5 });
           }
           gearOuter.rotation = elapsed * 0.55 * dir * speedMult;
 
-          gearInner.circle(0, 0, 79).stroke({
-            width: 2.5,
+          gearInner.circle(0, 0, 102).stroke({
+            width: 2,
             color: secondaryRing,
-            alpha: 0.88,
+            alpha: 0.4,
           });
           for (let i = 0; i < 4; i++) {
             const a = (i / 4) * Math.PI * 2;
             gearInner
-              .circle(Math.cos(a) * 79, Math.sin(a) * 79, 4.5)
-              .fill({ color: secondaryRing });
+              .circle(Math.cos(a) * 102, Math.sin(a) * 102, 4)
+              .fill({ color: secondaryRing, alpha: 0.65 });
           }
           gearInner.rotation = -elapsed * 0.9 * dir * speedMult;
 
@@ -658,29 +678,23 @@ export function BossViewportPixi({
               color: secondaryRing,
               alpha: 0.95,
             });
-          } else {
-            bossBody.circle(0, 0, 73).stroke({
-              width: 3.5,
-              color: primaryRing,
-              alpha: 0.95,
-            });
           }
         } else {
           // Kalos Prime: Void Alchemist
-          gearOuter.circle(0, 0, 90).stroke({
-            width: 2.5,
+          gearOuter.circle(0, 0, 114).stroke({
+            width: 2,
             color: isPhase2 ? 0xe879f9 : 0x8b5cf6,
-            alpha: 0.72,
+            alpha: 0.38,
           });
           for (let i = 0; i < 3; i++) {
             const a = elapsed * 0.9 * speedMult + (i * Math.PI * 2) / 3;
-            const ox = Math.cos(a) * 90;
-            const oy = Math.sin(a) * 68;
+            const ox = Math.cos(a) * 114;
+            const oy = Math.sin(a) * 86;
             const isFilled = i < b.voidGauge;
             gearOuter
-              .circle(ox, oy, 8.5)
-              .fill({ color: isFilled ? 0xe879f9 : 0xffffff, alpha: 0.95 })
-              .stroke({ width: 2.5, color: 0x38bdf8 });
+              .circle(ox, oy, 8)
+              .fill({ color: isFilled ? 0xe879f9 : 0x1e1b4b, alpha: 0.88 })
+              .stroke({ width: 2, color: 0x38bdf8, alpha: 0.85 });
           }
 
           if (!hasSprite) {
@@ -699,12 +713,6 @@ export function BossViewportPixi({
               .fill({ color: 0x38bdf8 })
               .circle(10, -8, 4.5)
               .fill({ color: 0x38bdf8 });
-          } else {
-            bossBody.circle(0, 0, 73).stroke({
-              width: 3.5,
-              color: isPhase2 ? 0xe879f9 : 0x8b5cf6,
-              alpha: 0.95,
-            });
           }
 
           if (b.invulnerable) {
@@ -712,11 +720,11 @@ export function BossViewportPixi({
               const a1 = (i / 6) * Math.PI * 2 + elapsed * 0.25 * speedMult;
               const a2 = ((i + 1) / 6) * Math.PI * 2 + elapsed * 0.25 * speedMult;
               barrierGfx
-                .moveTo(Math.cos(a1) * 84, Math.sin(a1) * 84)
-                .lineTo(Math.cos(a2) * 84, Math.sin(a2) * 84)
-                .stroke({ width: 3.5, color: 0x7c3aed, alpha: 0.85 });
+                .moveTo(Math.cos(a1) * 96, Math.sin(a1) * 96)
+                .lineTo(Math.cos(a2) * 96, Math.sin(a2) * 96)
+                .stroke({ width: 2.5, color: 0xc084fc, alpha: 0.65 });
             }
-            barrierGfx.circle(0, 0, 84).fill({ color: 0xa855f7, alpha: 0.1 });
+            barrierGfx.circle(0, 0, 96).fill({ color: 0xa855f7, alpha: 0.08 });
           }
         }
       };
@@ -729,7 +737,7 @@ export function BossViewportPixi({
         const w = app.screen.width;
         const h = app.screen.height;
         const cx = w * 0.5;
-        const cy = h * 0.48;
+        const cy = h * 0.40;
 
         // Process queued FX events
         while (pendingEventsRef.current.length > 0) {
@@ -898,33 +906,35 @@ export function BossViewportPixi({
     <div className={`boss-viewport ${boss.phase === 2 ? 'viewport-phase2' : ''}`}>
       <div ref={hostRef} className="boss-pixi-canvas" />
 
-      {/* Shield Slots Overlay */}
-      <div className="shield-bar-overlay">
-        <ShieldPill
-          label="RED"
-          value={boss.shields.red}
-          max={boss.maxShields.red}
-          color="red"
-          isWeakness={boss.weaknessColor === 'red'}
-        />
-        <ShieldPill
-          label="GREEN"
-          value={boss.shields.green}
-          max={boss.maxShields.green}
-          color="green"
-          isWeakness={boss.weaknessColor === 'green'}
-        />
-        <ShieldPill
-          label={boss.id === 'kalos_prime' ? 'BLUE · 플라스크' : 'BLUE'}
-          value={boss.shields.blue}
-          max={boss.maxShields.blue}
-          color="blue"
-          isWeakness={boss.weaknessColor === 'blue'}
-        />
-      </div>
+      {/* Shield Slots Overlay (hidden in minimal full-bleed edge HUD) */}
+      {!minimalHud && (
+        <div className="shield-bar-overlay">
+          <ShieldPill
+            label="RED"
+            value={boss.shields.red}
+            max={boss.maxShields.red}
+            color="red"
+            isWeakness={boss.weaknessColor === 'red'}
+          />
+          <ShieldPill
+            label="GREEN"
+            value={boss.shields.green}
+            max={boss.maxShields.green}
+            color="green"
+            isWeakness={boss.weaknessColor === 'green'}
+          />
+          <ShieldPill
+            label={boss.id === 'kalos_prime' ? 'BLUE · 플라스크' : 'BLUE'}
+            value={boss.shields.blue}
+            max={boss.maxShields.blue}
+            color="blue"
+            isWeakness={boss.weaknessColor === 'blue'}
+          />
+        </div>
+      )}
 
       {/* Auto-fading Skill Cut-In Toast */}
-      {visibleCutIn && (
+      {!minimalHud && visibleCutIn && (
         <div
           key={`cutin-${visibleCutIn.id}`}
           className={`skill-cutin-toast cutin-${visibleCutIn.resolvedColor}`}
@@ -938,59 +948,61 @@ export function BossViewportPixi({
       )}
 
       {/* Boss Reactive Bark */}
-      {boss.lastBark && (
+      {!minimalHud && boss.lastBark && (
         <div key={`bark-${boss.lastBark}`} className="boss-bark-pill">
           <span>“{boss.lastBark}”</span>
         </div>
       )}
 
       {/* Boss Status, Temporal Stance & Elemental Primer Overlay */}
-      <div className="boss-state-badges">
-        {primer ? (
-          <span className={`primer-pill ${primer.cls}`}>
-            <strong>{primer.title}</strong>
-            <small>{primer.comboHint}</small>
-          </span>
-        ) : (
-          <span className="primer-pill primer-idle">
-            <strong>원소 공명</strong>
-            <small>속성 2종 교차 시 반응</small>
-          </span>
-        )}
-        {boss.temporalStance && (
-          <span
-            className={`status-chip ${
-              boss.temporalStance === 'accelerate'
-                ? 'chip-stance-accel'
-                : 'chip-stance-rewind'
-            }`}
-          >
-            {boss.temporalStance === 'accelerate'
-              ? '가속 태세 +1 반격'
-              : '역행 태세 · 보호막 잔존 시 +2 회복'}
-          </span>
-        )}
-        {boss.staggered && (
-          <span className="status-chip chip-stagger">STAGGERED · 그로기</span>
-        )}
-        {boss.phase === 2 && (
-          <span className="status-chip chip-phase2">PHASE 2 · 각성</span>
-        )}
-        {boss.invulnerable && (
-          <span className="status-chip chip-void">무적 결계</span>
-        )}
-        {boss.isUnstable && (
-          <span className="status-chip chip-unstable">불안정 ×1.5</span>
-        )}
-        {boss.isOverheated && (
-          <span className="status-chip chip-overheat">과열 +2</span>
-        )}
-        {boss.id === 'kalos_prime' && boss.voidGauge > 0 && (
-          <span className="status-chip chip-void">
-            공허 {boss.voidGauge}/3
-          </span>
-        )}
-      </div>
+      {!minimalHud && (
+        <div className="boss-state-badges">
+          {primer ? (
+            <span className={`primer-pill ${primer.cls}`}>
+              <strong>{primer.title}</strong>
+              <small>{primer.comboHint}</small>
+            </span>
+          ) : (
+            <span className="primer-pill primer-idle">
+              <strong>원소 공명</strong>
+              <small>속성 2종 교차 시 반응</small>
+            </span>
+          )}
+          {boss.temporalStance && (
+            <span
+              className={`status-chip ${
+                boss.temporalStance === 'accelerate'
+                  ? 'chip-stance-accel'
+                  : 'chip-stance-rewind'
+              }`}
+            >
+              {boss.temporalStance === 'accelerate'
+                ? '가속 태세 +1 반격'
+                : '역행 태세 · 보호막 잔존 시 +2 회복'}
+            </span>
+          )}
+          {boss.staggered && (
+            <span className="status-chip chip-stagger">STAGGERED · 그로기</span>
+          )}
+          {boss.phase === 2 && (
+            <span className="status-chip chip-phase2">PHASE 2 · 각성</span>
+          )}
+          {boss.invulnerable && (
+            <span className="status-chip chip-void">무적 결계</span>
+          )}
+          {boss.isUnstable && (
+            <span className="status-chip chip-unstable">불안정 ×1.5</span>
+          )}
+          {boss.isOverheated && (
+            <span className="status-chip chip-overheat">과열 +2</span>
+          )}
+          {boss.id === 'kalos_prime' && boss.voidGauge > 0 && (
+            <span className="status-chip chip-void">
+              공허 {boss.voidGauge}/3
+            </span>
+          )}
+        </div>
+      )}
 
       {/* 4-Dice Auto Roll Result Overlay */}
       {lastDiceRoll && (

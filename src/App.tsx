@@ -6,7 +6,6 @@ import {
   Gem,
   Heart,
   HelpCircle,
-  Menu,
   QrCode,
   RotateCcw,
   Shield,
@@ -25,7 +24,7 @@ import {
   GAUNTLET_ORDER,
   getScaledBossStats,
 } from './data/bosses';
-import { SEEKER_ROSTER, getCardsForSeeker } from './data/cards';
+import { SEEKER_ROSTER } from './data/cards';
 import { RELIC_CATALOG, RELIC_LIST } from './data/relics';
 import {
   advanceGauntletStage,
@@ -64,6 +63,14 @@ import { BossViewportPixi } from './components/BossViewportPixi';
 import { QrVisionScanner } from './components/QrVisionScanner';
 import { QrTestDrawer } from './components/QrTestDrawer';
 import { AiSettingsModal } from './components/AiSettingsModal';
+import {
+  ElementEmblemSvg,
+  GearEmblemSvg,
+  HourglassSvg,
+  RubyHeartSvg,
+  ShieldCrestSvg,
+  SkullEmblemSvg,
+} from './components/FantasyIcons';
 import { sfx } from './audio/sfx';
 import type {
   AiCardAction,
@@ -156,7 +163,6 @@ export function App() {
   const [infoOpen, setInfoOpen] = useState(false);
   const [scanSheetOpen, setScanSheetOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [deckTab, setDeckTab] = useState<'p1' | 'p2'>('p1');
   const [aiConfig, setAiConfig] = useState<AiAgentConfig>(() => loadAiConfig());
   const [aiBusy, setAiBusy] = useState(false);
   const [codex, setCodex] = useState<Partial<Record<BossId, BossClearRecord>>>(() =>
@@ -467,7 +473,6 @@ export function App() {
     ),
   );
   const bossHpPct = Math.max(0, Math.round((game.boss.hp / game.boss.maxHp) * 100));
-  const teamHpPct = Math.max(0, Math.round((game.teamHp / game.maxTeamHp) * 100));
   const counterEst = estimateBossCounter(game.boss, game.teamProtection);
   const synergyReady = game.synergyGauge >= 100;
   const raidGrade =
@@ -475,273 +480,377 @@ export function App() {
       ? computeRaidGrade(game)
       : null;
   const bossRecord = codex[game.boss.id];
-  const deckSeekerId =
-    deckTab === 'p1' ? game.players[0].seekerId : game.players[1].seekerId;
-  const deckCards = getCardsForSeeker(deckSeekerId);
+  const activeOwner = game.players[game.activeChain.ownerSlot] ?? game.players[0];
+  const activeOwnerShort = activeOwner.name.split(' ')[0];
 
-  return (
-    <div className="app-layout">
-    <div className="raid-shell game-shell">
-      {/* SIMPLE TOP HUD */}
-      <header className="hud-top">
-        <div className="boss-hud">
-          <div className="boss-hud-row">
-            <span className="boss-hud-name">{game.boss.name}</span>
-            {game.boss.phase === 2 && <span className="mini-tag tag-danger">PHASE 2</span>}
-            {game.gauntletMode && (
-              <span className="mini-tag">
-                건틀릿 {game.gauntletStage + 1}/{GAUNTLET_ORDER.length}
-              </span>
-            )}
-            {game.difficulty !== 'normal' && (
-              <span className="mini-tag tag-warn">{game.difficulty.toUpperCase()}</span>
-            )}
-          </div>
-          <div className="boss-hp-track boss-hp-large">
-            <div
-              className={`boss-hp-fill ${game.boss.phase === 2 ? 'phase2-hp' : ''}`}
-              style={{ width: `${bossHpPct}%` }}
-            />
-            {game.boss.phase === 1 && (
+  const getHeroCenterPrompt = (): string => {
+    if (game.phase === 'boss_counter') return '보스의 반격!';
+    if (game.phase === 'maintenance') return '정비 및 탈진 단계';
+    if (aiBusy) return 'AI가 카드를 읽는 중...';
+    if (game.activeChain.mainCard) {
+      return `${game.activeChain.mainCard.name} · 부스트 ${game.activeChain.boostCards.length}/2`;
+    }
+    if (game.boss.staggered) return '그로기! 지금 총공격!';
+    return `${activeOwnerShort}, 카드를 비추세요`;
+  };
+
+  const renderEdgeMedallion = (player: GameState['players'][0], side: 'left' | 'right') => {
+    const isOwner = game.activeChain.ownerSlot === player.slot && game.phase === 'coop_turn';
+    const orbSlots = game.activeChain.mainCard
+      ? Math.max(0, 2 - game.activeChain.boostCards.length)
+      : player.actedThisRound
+        ? 0
+        : 3;
+
+    return (
+      <div
+        key={player.slot}
+        className={`edge-medallion edge-medallion-${side} color-${player.primaryColor} ${
+          isOwner ? 'is-active-turn' : ''
+        }`}
+      >
+        <button
+          type="button"
+          className="medallion-frame-btn"
+          onClick={() => setInfoOpen(true)}
+          title={`${player.name} 상태 · 전술 정보`}
+        >
+          <img
+            src={getSeekerPortraitUrl(player.seekerId)}
+            alt={player.name}
+            className="medallion-portrait"
+          />
+          <div className="medallion-orbs" aria-hidden="true">
+            {[0, 1, 2].map((idx) => (
               <span
-                className="phase2-threshold-marker"
-                style={{ left: `${phase2MarkerPct}%` }}
-                title={`PHASE 2 각성선 (HP ${scaledCurrentBoss.phase2HpThreshold})`}
+                key={idx}
+                className={`action-orb ${idx < orbSlots ? 'orb-lit' : 'orb-spent'}`}
               />
-            )}
-            <span className="boss-hp-text">
-              {game.boss.hp} / {game.boss.maxHp}
-            </span>
+            ))}
           </div>
-        </div>
-        <div className="hud-top-actions">
+          <span className="medallion-name-tag">P{player.slot + 1}</span>
+        </button>
+
+        <div className="medallion-sub-badges">
+          {player.lanternCharged && (
+            <button
+              type="button"
+              className="medallion-lantern-btn"
+              disabled={game.phase !== 'coop_turn'}
+              onClick={() =>
+                handleScanCode(player.slot === 0 ? 'KD_LANTERN_01' : 'KD_LANTERN_02')
+              }
+              title="킨파이어 랜턴 발동!"
+            >
+              <Flame size={13} />
+              <span>랜턴</span>
+            </button>
+          )}
           <button
             type="button"
-            className="icon-btn"
-            onClick={() => setMenuOpen(true)}
-            aria-label="메뉴"
-            title="메뉴"
+            className="medallion-exhaust-btn"
+            disabled={game.phase !== 'maintenance' && game.phase !== 'coop_turn'}
+            onClick={() =>
+              setGameState((prev) => ({
+                game: declareExhaustion(prev.game, player.slot),
+                undoStack:
+                  prev.game.phase === 'coop_turn'
+                    ? pushUndoSnapshot(prev.undoStack, prev.game)
+                    : prev.undoStack,
+              }))
+            }
+            title="탈진 선언"
           >
-            <Menu size={20} />
+            탈진
           </button>
         </div>
-      </header>
+      </div>
+    );
+  };
 
-      <main className="stage-column">
-        <div className="round-strip">
-          <span className="round-chip">
-            ROUND {game.round}/{game.maxRounds}
-          </span>
-          <span className={`phase-pill phase-${game.phase}`}>{PHASE_LABEL[game.phase]}</span>
-          <span className="intent-mini">
-            <Swords size={12} /> 예상 반격 <strong>{counterEst.net}</strong>
-          </span>
-        </div>
-
-        <div className="stage-wrap">
+  return (
+    <div className="fantasy-app-bg">
+      <div className="fantasy-stage-shell">
+        {/* FULL-BLEED PIXI ARENA & TOWERING BOSS */}
+        <div className="fantasy-canvas-layer">
           <BossViewportPixi
             boss={game.boss}
             effectQueue={game.effectQueue}
             lastDiceRoll={game.lastDiceRoll}
             latestLog={game.logs[0] ?? null}
+            minimalHud
           />
+          <div className="arena-vignette-overlay" />
+        </div>
+
+        {/* TOP-LEFT: SKULL BOSS HP TOKEN */}
+        <button
+          type="button"
+          className="edge-top-left skull-hp-badge"
+          onClick={() => setHelpOpen(true)}
+          title={`${game.boss.name} · 클릭하여 보스 기믹 보기`}
+        >
+          <SkullEmblemSvg size={38} />
+          <div className="skull-hp-meta">
+            <div className="skull-hp-numbers">
+              <strong>{game.boss.hp}</strong>
+              {game.boss.phase === 2 && <span className="p2-ember-tag">P2</span>}
+              {game.gauntletMode && (
+                <span className="gauntlet-mini-tag">
+                  {game.gauntletStage + 1}/{GAUNTLET_ORDER.length}
+                </span>
+              )}
+            </div>
+            <div className="skull-hp-bar">
+              <div
+                className={`skull-hp-fill ${game.boss.phase === 2 ? 'phase2-hp' : ''}`}
+                style={{ width: `${bossHpPct}%` }}
+              />
+              {game.boss.phase === 1 && (
+                <span
+                  className="phase2-threshold-marker"
+                  style={{ left: `${phase2MarkerPct}%` }}
+                />
+              )}
+            </div>
+          </div>
+        </button>
+
+        {/* TOP-RIGHT: ORNATE GEAR SETTINGS BUTTON & UNDO */}
+        <div className="edge-top-right">
+          {undoStack.length > 0 && game.phase === 'coop_turn' && (
+            <button
+              type="button"
+              className="ornate-mini-icon-btn"
+              onClick={handleUndo}
+              title="직전 행동 되돌리기 (Ctrl+Z)"
+              aria-label="되돌리기"
+            >
+              <Undo2 size={17} />
+            </button>
+          )}
+          <button
+            type="button"
+            className="ornate-gear-btn"
+            onClick={() => setMenuOpen(true)}
+            aria-label="메뉴 및 설정"
+            title="메뉴 · 테스트 덱 · AI 설정"
+          >
+            <GearEmblemSvg size={28} />
+          </button>
+        </div>
+
+        {/* EDGE-DOCKED SEEKER PORTRAIT MEDALLIONS */}
+        {renderEdgeMedallion(game.players[0], 'left')}
+        {renderEdgeMedallion(game.players[1], 'right')}
+
+        {/* SYNERGY ULTIMATE FLOATING ORB (RIGHT EDGE BELOW P2) */}
+        <button
+          type="button"
+          className={`edge-synergy-orb ${synergyReady ? 'is-ready' : ''}`}
+          disabled={!synergyReady || game.phase !== 'coop_turn'}
+          onClick={handleTriggerSynergy}
+          title={
+            synergyReady
+              ? '성좌 공명 발동! (무적 관통 10 피해 + 방어 +3)'
+              : `합동 공명 게이지 ${game.synergyGauge}%`
+          }
+        >
+          <Sparkles size={15} />
+          <span>{synergyReady ? '공명!' : `${game.synergyGauge}%`}</span>
+        </button>
+
+        {/* CENTER FLOATING FANTASY PROMPT & BARK */}
+        <div className="center-hero-callout">
+          {game.boss.lastBark && (
+            <div key={game.boss.lastBark} className="floating-boss-bark">
+              “{game.boss.lastBark}”
+            </div>
+          )}
+
+          {game.lastReaction ? (
+            <div
+              key={game.lastReaction.id}
+              className={`hero-prompt-text reaction-glow-${game.lastReaction.kind}`}
+            >
+              {game.lastReaction.title}!{' '}
+              {game.logs[0]?.damageDealt ? `-${game.logs[0].damageDealt}` : ''}
+            </div>
+          ) : (
+            <div className="hero-prompt-text">{getHeroCenterPrompt()}</div>
+          )}
+
+          <div className="hero-sub-status">
+            {game.boss.primedElement && (
+              <span className={`micro-chip chip-${game.boss.primedElement}`}>
+                {COLOR_KO[game.boss.primedElement]} 대기
+              </span>
+            )}
+            {game.fieldEcho && (
+              <span className="micro-chip chip-echo">{game.fieldEcho.title}</span>
+            )}
+            {game.boss.invulnerable && <span className="micro-chip chip-void">무적 결계</span>}
+            {game.boss.staggered && <span className="micro-chip chip-gold">그로기</span>}
+            {game.boss.temporalStance && (
+              <span className="micro-chip chip-blue">
+                {game.boss.temporalStance === 'accelerate' ? '가속 +1' : '역행'}
+              </span>
+            )}
+            {game.activeChain.mainCard && game.phase === 'coop_turn' && (
+              <button
+                type="button"
+                className="micro-confirm-btn"
+                onClick={() =>
+                  setGameState((prev) => ({
+                    game: commitCurrentChain(prev.game),
+                    undoStack: pushUndoSnapshot(prev.undoStack, prev.game),
+                  }))
+                }
+              >
+                <img
+                  src={getCardArtUrl(game.activeChain.mainCard.color)}
+                  alt=""
+                  className="micro-card-thumb"
+                />
+                콤보 확정
+              </button>
+            )}
+          </div>
+
           {scanStatus && (
-            <div className={`scan-toast ${scanStatus.isError ? 'toast-err' : ''}`}>
+            <div className={`hero-scan-note ${scanStatus.isError ? 'is-err' : ''}`}>
               {scanStatus.text}
             </div>
           )}
         </div>
 
-        <div className="player-strip">
-          <div className="seeker-party-chips">
-            {game.players.map((p) => (
-              <div
-                key={p.slot}
-                className={`seeker-avatar-chip seeker-${p.primaryColor}`}
-                title={`${p.name} (P${p.slot + 1})`}
-              >
-                <img
-                  src={getSeekerPortraitUrl(p.seekerId)}
-                  alt={p.name}
-                  className="seeker-avatar-img"
-                />
-                <span className="seeker-slot-label">P{p.slot + 1}</span>
-              </div>
-            ))}
+        {/* CENTER CIRCULAR AI VISION LENS + FLANKING PHASE / COUNTER CONTROLS */}
+        <div className="vision-lens-dock">
+          <div className="flank-pill counter-flank" title={game.boss.intent.description}>
+            <Swords size={13} />
+            <span>반격 {counterEst.net}</span>
           </div>
-          <div className="hp-mini">
-            <Heart size={15} className="heart-icon" />
-            <div className="hp-mini-track">
-              <div style={{ width: `${teamHpPct}%` }} />
-            </div>
-            <strong>
-              {game.teamHp}/{game.maxTeamHp}
-            </strong>
-          </div>
-          <div className="stat-mini" title="방어막">
-            <Shield size={14} /> +{game.teamProtection}
-          </div>
+
           <button
             type="button"
-            className={`stat-mini synergy-mini ${synergyReady ? 'is-ready' : ''}`}
-            disabled={!synergyReady || game.phase !== 'coop_turn'}
-            onClick={handleTriggerSynergy}
-            title={
-              synergyReady
-                ? '성좌 공명 발동 · 보스 방어 무시 10 피해'
-                : '합동 궁극기 게이지'
-            }
+            className={`vision-lens-orb ${aiBusy ? 'is-analyzing' : ''}`}
+            disabled={game.phase !== 'coop_turn' || aiBusy}
+            onClick={() => setScanSheetOpen(true)}
+            title="카메라 / AI 카드 스캔"
+            aria-label="카드 스캔 열기"
           >
-            <Sparkles size={14} />
-            {synergyReady ? '궁극기!' : `${game.synergyGauge}%`}
-          </button>
-        </div>
-
-        {game.activeChain.mainCard && game.phase === 'coop_turn' && (
-          <div
-            className={`chain-bar ${
-              game.activeChain.resolvedColor
-                ? `chain-${game.activeChain.resolvedColor}`
-                : ''
-            }`}
-          >
-            <img
-              src={getCardArtUrl(game.activeChain.mainCard.color)}
-              alt={game.activeChain.mainCard.name}
-              className="chain-card-thumb"
-            />
-            <span className="chain-label">콤보</span>
-            <strong className="chain-name">{game.activeChain.mainCard.name}</strong>
-            <span className="chain-count">
-              +{game.activeChain.boostCards.length} 부스트
+            <span className="lens-ring-outer" />
+            <span className="lens-core">
+              <Camera size={24} />
             </span>
+          </button>
+
+          <div className="flank-actions-right">
             <button
               type="button"
-              className="chain-confirm"
-              onClick={() =>
-                setGameState((prev) => ({
-                  game: commitCurrentChain(prev.game),
-                  undoStack: pushUndoSnapshot(prev.undoStack, prev.game),
-                }))
-              }
+              className="flank-pill deck-flank-btn"
+              onClick={() => setDrawerOpen(true)}
+              title="테스트 카드 덱 / 비전 샘플"
             >
-              확정
+              <QrCode size={13} />
+              <span>덱</span>
             </button>
+            {game.phase === 'coop_turn' && (
+              <button
+                type="button"
+                className="flank-pill phase-flank-btn"
+                onClick={() =>
+                  setGameState((prev) => ({
+                    game: resolveBossCounterPhase(prev.game),
+                    undoStack: clearUndoStack(),
+                  }))
+                }
+              >
+                턴 종료
+              </button>
+            )}
+            {game.phase === 'boss_counter' && (
+              <button
+                type="button"
+                className="flank-pill phase-flank-btn"
+                onClick={() => setGame((g) => proceedToMaintenance(g))}
+              >
+                정비로
+              </button>
+            )}
+            {game.phase === 'maintenance' && (
+              <button
+                type="button"
+                className="flank-pill phase-flank-btn"
+                onClick={() =>
+                  setGameState((prev) => ({
+                    game: startNextRound(prev.game),
+                    undoStack: clearUndoStack(),
+                  }))
+                }
+              >
+                {game.round >= game.maxRounds ? '결과' : `${game.round + 1}R`}
+              </button>
+            )}
           </div>
-        )}
-      </main>
+        </div>
 
-      <footer className="command-bar">
+        {/* BOTTOM-CENTER: 3 ORNATE VERTICAL SHIELD PILLARS */}
+        <div className="shield-pillars-row">
+          {(['red', 'green', 'blue'] as BaseColor[]).map((col) => {
+            const val = game.boss.shields[col];
+            const isWeak = game.boss.weaknessColor === col;
+            const broken = val === 0;
+            return (
+              <div
+                key={col}
+                className={`shield-pillar pillar-${col} ${broken ? 'is-broken' : ''} ${
+                  isWeak ? 'is-weakness' : ''
+                }`}
+              >
+                {isWeak && <span className="pillar-weak-badge">약점+2</span>}
+                <div className="pillar-crest">
+                  <ShieldCrestSvg color={col} broken={broken} size={50} />
+                </div>
+                <strong className="pillar-value">{val}</strong>
+                <div className="pillar-emblem-box">
+                  <ElementEmblemSvg color={col} size={22} />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* BOTTOM-LEFT: HOURGLASS ROUND BADGE */}
         <button
           type="button"
-          className="btn-big btn-scan"
-          onClick={() => setScanSheetOpen(true)}
-          disabled={game.phase !== 'coop_turn'}
+          className="edge-bottom-left hourglass-badge"
+          onClick={() => setInfoOpen(true)}
+          title={`라운드 ${game.round}/${game.maxRounds} · 전술 정보`}
         >
-          <Camera size={20} />
-          카드 스캔
+          <HourglassSvg size={34} />
+          <span className="corner-stat-pill">
+            {game.round}
+            <small>/{game.maxRounds}</small>
+          </span>
         </button>
 
-        {game.phase === 'coop_turn' && (
-          <button
-            type="button"
-            className="btn-big btn-turn"
-            onClick={() =>
-              setGameState((prev) => ({
-                game: resolveBossCounterPhase(prev.game),
-                undoStack: clearUndoStack(),
-              }))
-            }
-          >
-            턴 종료
-          </button>
-        )}
-        {game.phase === 'boss_counter' && (
-          <button
-            type="button"
-            className="btn-big btn-turn"
-            onClick={() => setGame((g) => proceedToMaintenance(g))}
-          >
-            정비 단계로
-          </button>
-        )}
-        {game.phase === 'maintenance' && (
-          <button
-            type="button"
-            className="btn-big btn-turn"
-            onClick={() =>
-              setGameState((prev) => ({
-                game: startNextRound(prev.game),
-                undoStack: clearUndoStack(),
-              }))
-            }
-          >
-            {game.round >= game.maxRounds
-              ? '결과 판정'
-              : `${game.round + 1}라운드 시작`}
-          </button>
-        )}
-      </footer>
+        {/* BOTTOM-RIGHT: RUBY CRYSTAL HEART TEAM HP */}
+        <button
+          type="button"
+          className="edge-bottom-right crystal-heart-badge"
+          onClick={() => setInfoOpen(true)}
+          title={`팀 체력 ${game.teamHp}/${game.maxTeamHp} · 방어막 +${game.teamProtection}`}
+        >
+          {game.teamProtection > 0 && (
+            <span className="floating-guard-pip">
+              <Shield size={11} /> +{game.teamProtection}
+            </span>
+          )}
+          <span className="corner-stat-pill">{game.teamHp}</span>
+          <RubyHeartSvg size={38} />
+        </button>
       </div>
-
-      {/* SIDE TEST DECK (dev, wide screens) */}
-      <aside className="test-deck-panel" aria-label="테스트 덱">
-        <div className="deck-panel-head">
-          <div className="deck-seeker-head">
-            <img
-              src={getSeekerPortraitUrl(deckSeekerId)}
-              alt={SEEKER_ROSTER[deckSeekerId].name}
-              className="deck-seeker-avatar"
-            />
-            <div className="deck-panel-title">
-              <span className="deck-eyebrow">SEEKER DECK</span>
-              <h3>{SEEKER_ROSTER[deckSeekerId].name}</h3>
-            </div>
-          </div>
-          <div className="deck-tabs">
-            <button
-              type="button"
-              className={deckTab === 'p1' ? 'active' : ''}
-              onClick={() => setDeckTab('p1')}
-            >
-              P1
-            </button>
-            <button
-              type="button"
-              className={deckTab === 'p2' ? 'active' : ''}
-              onClick={() => setDeckTab('p2')}
-            >
-              P2
-            </button>
-          </div>
-        </div>
-        <p className="deck-help">카드를 누르면 QR 스캔과 동일하게 발동됩니다.</p>
-        <div className="deck-panel-list">
-          {deckCards.map((card) => (
-            <button
-              key={card.id}
-              type="button"
-              className={`deck-row deck-${card.color}`}
-              disabled={game.phase !== 'coop_turn'}
-              onClick={() => handleScanCode(card.id)}
-              title={`${card.id} 사용`}
-            >
-              <img
-                src={getCardArtUrl(card.color)}
-                alt={card.name}
-                className="deck-card-thumb"
-              />
-              <span className="deck-row-main">
-                <strong>{card.name}</strong>
-                <small>
-                  위력 {card.power} · 부스트 +{card.boostValue}
-                </small>
-              </span>
-              <span className="deck-scan-badge">사용</span>
-            </button>
-          ))}
-        </div>
-      </aside>
 
       {/* MENU SHEET */}
       {menuOpen && (
@@ -762,7 +871,7 @@ export function App() {
               <div className="menu-brand-row">
                 <span className="menu-brand">AETHERIA</span>
                 <span className="menu-brand-sub">
-                  {game.boss.name} · R{game.round}/{game.maxRounds}
+                  {game.boss.name} · R{game.round}/{game.maxRounds} · {PHASE_LABEL[game.phase]}
                 </span>
               </div>
 
@@ -899,9 +1008,18 @@ export function App() {
             </div>
             <div className="scanner-sheet-body">
               <QrVisionScanner
-                onScan={(code) => handleScanCode(code)}
-                onCaptureForAi={(img) => void handleCaptureForAi(img)}
-                onOpenTestDeck={() => setDrawerOpen(true)}
+                onScan={(code) => {
+                  handleScanCode(code);
+                  setScanSheetOpen(false);
+                }}
+                onCaptureForAi={(img) => {
+                  setScanSheetOpen(false);
+                  void handleCaptureForAi(img);
+                }}
+                onOpenTestDeck={() => {
+                  setScanSheetOpen(false);
+                  setDrawerOpen(true);
+                }}
                 onRequireAiConfig={() => {
                   setScanStatus({
                     text: '자동 인식을 사용하려면 먼저 AI 에이전트를 설정하세요.',
