@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
 import {
   Bot,
   Flame,
@@ -569,7 +569,15 @@ export function App() {
 
   return (
     <div className="fantasy-app-bg">
-      <div className="fantasy-stage-shell">
+      <div
+        className="fantasy-stage-shell"
+        style={
+          {
+            '--pillar-plate-url': 'url(./assets/ui/pillar_plate.png)',
+            '--bronze-frame-url': 'url(./assets/ui/bronze_frame.png)',
+          } as CSSProperties
+        }
+      >
         {/* FULL-BLEED PIXI ARENA & TOWERING BOSS */}
         <div className="fantasy-canvas-layer">
           <BossViewportPixi

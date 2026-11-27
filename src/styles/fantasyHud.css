@@ -82,12 +82,16 @@ body,
   display: flex;
   flex-direction: column;
   gap: 3px;
-  background: linear-gradient(180deg, rgba(22, 18, 20, 0.92), rgba(11, 10, 14, 0.94));
-  border: 2px solid #8b7355;
+  border-style: solid;
+  border-width: 4px 6px;
+  border-color: transparent;
+  border-image-source: var(--bronze-frame-url);
+  border-image-slice: 14 18 fill;
+  border-image-width: 10px;
   border-radius: 10px;
-  padding: 3px 10px 4px;
-  min-width: 72px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.65);
+  padding: 2px 8px 3px;
+  min-width: 78px;
+  filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.78));
 }
 
 .skull-hp-numbers {
@@ -556,74 +560,80 @@ body,
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  padding: 6px 11px;
-  border-radius: 999px;
+  padding: 2px 8px;
   font-size: 12px;
   font-weight: 800;
-  background: linear-gradient(180deg, rgba(24, 28, 40, 0.92), rgba(10, 13, 20, 0.94));
-  border: 1.5px solid #7c6a51;
-  color: #e2e8f0;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.65);
+  border-style: solid;
+  border-width: 4px 6px;
+  border-color: transparent;
+  border-image-source: var(--bronze-frame-url);
+  border-image-slice: 14 18 fill;
+  border-image-width: 8px;
+  color: #f1f5f9;
+  filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.78));
+  transition: transform 0.12s ease, filter 0.15s ease;
+}
+
+.flank-pill:active {
+  transform: scale(0.95);
 }
 
 .counter-flank {
   color: #fca5a5;
-  border-color: rgba(248, 113, 113, 0.55);
+  filter: drop-shadow(0 0 8px rgba(248, 113, 113, 0.35)) drop-shadow(0 4px 10px rgba(0, 0, 0, 0.8));
 }
 
 .phase-flank-btn {
-  background: linear-gradient(135deg, #2563eb, #1d4ed8);
-  border-color: #93c5fd;
-  color: #ffffff;
+  color: #e0f2fe;
+  text-shadow: 0 0 8px rgba(56, 189, 248, 0.75);
+  filter: drop-shadow(0 0 10px rgba(37, 99, 235, 0.65)) drop-shadow(0 4px 10px rgba(0, 0, 0, 0.8));
 }
 
 /* BOTTOM-CENTER: 3 VERTICAL ORNATE SHIELD PILLARS */
 .shield-pillars-row {
   position: absolute;
   left: 50%;
-  bottom: 18px;
+  bottom: 16px;
   transform: translateX(-50%);
   z-index: 11;
   display: flex;
   align-items: flex-end;
-  gap: 12px;
+  gap: 14px;
 }
 
 .shield-pillar {
   position: relative;
-  width: 64px;
-  padding: 0 6px 8px;
-  border-radius: 12px;
-  background: linear-gradient(180deg, rgba(26, 22, 24, 0.92), rgba(10, 10, 14, 0.96));
-  border: 2px solid #8b7355;
+  width: 58px;
+  padding: 0 4px 9px;
+  border-radius: 14px;
+  background: var(--pillar-plate-url) center / 100% 100% no-repeat;
+  border: none;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 4px;
-  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.85);
+  filter: drop-shadow(0 8px 14px rgba(0, 0, 0, 0.88));
 }
 
 .shield-pillar.is-weakness {
-  border-color: #fbbf24;
-  box-shadow: 0 0 16px rgba(251, 191, 36, 0.55), 0 8px 20px rgba(0, 0, 0, 0.85);
+  filter: drop-shadow(0 0 11px rgba(251, 191, 36, 0.72)) drop-shadow(0 8px 14px rgba(0, 0, 0, 0.88));
 }
 
 .shield-pillar.is-broken {
-  opacity: 0.72;
-  border-color: #475569;
+  opacity: 0.76;
 }
 
 .pillar-crest {
-  margin-top: -18px;
-  filter: drop-shadow(0 4px 6px rgba(0, 0, 0, 0.8));
+  margin-top: -20px;
+  filter: drop-shadow(0 4px 6px rgba(0, 0, 0, 0.85));
 }
 
 .pillar-value {
   font-size: 22px;
   font-weight: 900;
   line-height: 1;
-  color: #ffffff;
-  text-shadow: 0 2px 4px #000;
+  color: #e2e8f0;
+  text-shadow: 0 2px 4px #000, 0 0 2px #000;
 }
 
 .pillar-emblem-box {
@@ -641,7 +651,7 @@ body,
 
 .pillar-weak-badge {
   position: absolute;
-  top: -30px;
+  top: -32px;
   font-size: 9px;
   font-weight: 900;
   padding: 1px 6px;
@@ -659,7 +669,7 @@ body,
   z-index: 12;
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 4px;
   background: none;
   padding: 0;
   color: #ffffff;
@@ -677,12 +687,16 @@ body,
   font-size: 18px;
   font-weight: 900;
   line-height: 1;
-  background: linear-gradient(180deg, rgba(22, 18, 20, 0.92), rgba(10, 10, 14, 0.95));
-  border: 2px solid #8b7355;
-  border-radius: 9px;
-  padding: 5px 10px;
-  color: #ffffff;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.72);
+  border-style: solid;
+  border-width: 4px 6px;
+  border-color: transparent;
+  border-image-source: var(--bronze-frame-url);
+  border-image-slice: 14 18 fill;
+  border-image-width: 9px;
+  padding: 3px 9px;
+  color: #e2e8f0;
+  text-shadow: 0 2px 4px #000;
+  filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.78));
 }
 
 .corner-stat-pill small {

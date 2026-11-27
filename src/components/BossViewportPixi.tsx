@@ -247,10 +247,10 @@ export function BossViewportPixi({
       let activeBossSprite: Sprite | null = null;
 
       void Promise.all([
-        tryLoadTexture('./assets/arena_bg.jpg'),
-        tryLoadTexture('./assets/vainglory_core.png'),
-        tryLoadTexture('./assets/kalos_prime.png'),
-        tryLoadTexture('./assets/chronos_wyrm.png'),
+        tryLoadTexture('./assets/arena_bg.jpg?v=gothic3'),
+        tryLoadTexture('./assets/vainglory_core.png?v=gothic3'),
+        tryLoadTexture('./assets/kalos_prime.png?v=gothic3'),
+        tryLoadTexture('./assets/chronos_wyrm.png?v=gothic3'),
       ]).then(([bgTex, vainTex, kalosTex, chronoTex]) => {
         if (destroyed) return;
         if (bgTex) {
@@ -492,14 +492,19 @@ export function BossViewportPixi({
                   ? 0x38bdf8
                   : 0xd97706;
 
-        bgLayer.ellipse(cx, cy + 74, 155, 32).fill({
+        bgLayer.ellipse(cx, cy + 88, 178, 38).fill({
           color: auraHex,
-          alpha: isPhase2 ? 0.26 : 0.16,
+          alpha: isPhase2 ? 0.28 : 0.16,
         });
-        bgLayer.ellipse(cx, cy + 74, 102, 20).stroke({
+        bgLayer.ellipse(cx, cy + 88, 126, 26).stroke({
           width: isPhase2 ? 2.5 : 1.5,
           color: auraHex,
           alpha: isPhase2 ? 0.72 : 0.45,
+        });
+        bgLayer.ellipse(cx, cy + 88, 150, 31).stroke({
+          width: 1,
+          color: 0xfde68a,
+          alpha: isPhase2 ? 0.36 : 0.22,
         });
 
         bossLayer.x = cx + (Math.random() - 0.5) * bossRecoil * 12;
