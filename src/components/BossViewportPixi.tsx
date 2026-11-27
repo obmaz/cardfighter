@@ -219,10 +219,10 @@ export function BossViewportPixi({
       const bossBody = new Graphics();
       const bossArtHolder = new Container();
       const bossMask = new Graphics();
-      bossMask.circle(0, 0, 44).fill({ color: 0xffffff });
+      bossMask.circle(0, 0, 72).fill({ color: 0xffffff });
       bossArtHolder.mask = bossMask;
       const bossFlashOverlay = new Graphics();
-      bossFlashOverlay.circle(0, 0, 44).fill({ color: 0xffffff, alpha: 0.72 });
+      bossFlashOverlay.circle(0, 0, 72).fill({ color: 0xffffff, alpha: 0.72 });
       bossFlashOverlay.visible = false;
       const barrierGfx = new Graphics();
       const staggerRingGfx = new Graphics();
@@ -258,7 +258,7 @@ export function BossViewportPixi({
         if (bgTex) {
           arenaBgSprite = new Sprite(bgTex);
           arenaBgSprite.anchor.set(0.5);
-          arenaBgSprite.alpha = 0.16;
+          arenaBgSprite.alpha = 0.9;
           arenaBgSprite.tint = 0xffffff;
           backdropLayer.addChild(arenaBgSprite);
         }
@@ -433,11 +433,11 @@ export function BossViewportPixi({
           arenaBgSprite.scale.set(scale);
           arenaBgSprite.tint = isPhase2
             ? b.id === 'kalos_prime'
-              ? 0xa855f7
+              ? 0xf3e8ff
               : b.id === 'chronos_wyrm'
-                ? 0x38bdf8
-                : 0xfca5a5
-            : 0x94a3b8;
+                ? 0xe0f2fe
+                : 0xffe4e6
+            : 0xffffff;
         }
 
         // Sync optional boss portrait sprite inside circular medallion
@@ -446,7 +446,7 @@ export function BossViewportPixi({
           bossArtHolder.removeChildren().forEach((c) => c.destroy());
           const spr = new Sprite(tex);
           spr.anchor.set(0.5);
-          const scale = 96 / Math.min(tex.width || 96, tex.height || 96);
+          const scale = 152 / Math.min(tex.width || 152, tex.height || 152);
           spr.scale.set(scale);
           bossArtHolder.addChild(spr);
           activeBossSprite = spr;
@@ -524,7 +524,7 @@ export function BossViewportPixi({
         }
 
         if (isPhase2) {
-          const pulseR = 78 + Math.sin(elapsed * 6) * 6;
+          const pulseR = 96 + Math.sin(elapsed * 6) * 6;
           const p2Color =
             b.id === 'kalos_prime'
               ? 0xc084fc
@@ -546,32 +546,32 @@ export function BossViewportPixi({
           const teeth = 12;
           for (let i = 0; i < teeth; i++) {
             const a = (i / teeth) * Math.PI * 2;
-            const x1 = Math.cos(a) * 66;
-            const y1 = Math.sin(a) * 66;
-            const x2 = Math.cos(a) * 80;
-            const y2 = Math.sin(a) * 80;
+            const x1 = Math.cos(a) * 86;
+            const y1 = Math.sin(a) * 86;
+            const x2 = Math.cos(a) * 98;
+            const y2 = Math.sin(a) * 98;
             gearOuter.moveTo(x1, y1).lineTo(x2, y2).stroke({
-              width: 8,
-              color: b.isOverheated || isPhase2 ? 0xf97316 : 0xb45309,
-              alpha: 0.9,
+              width: 7,
+              color: b.isOverheated || isPhase2 ? 0xf97316 : 0xd97706,
+              alpha: 0.92,
             });
           }
-          gearOuter.circle(0, 0, 66).stroke({
-            width: 5,
+          gearOuter.circle(0, 0, 86).stroke({
+            width: 4,
             color: isPhase2 ? 0xff4d4f : 0xf59e0b,
-            alpha: 0.85,
+            alpha: 0.88,
           });
           gearOuter.rotation = elapsed * (b.isOverheated ? 1.1 : 0.4) * speedMult;
 
-          gearInner.circle(0, 0, 48).stroke({
-            width: 3,
+          gearInner.circle(0, 0, 77).stroke({
+            width: 2.5,
             color: b.isUnstable ? 0x38bdf8 : isPhase2 ? 0xfca5a5 : 0xfde68a,
-            alpha: 0.88,
+            alpha: 0.9,
           });
           for (let i = 0; i < 6; i++) {
             const a = (i / 6) * Math.PI * 2;
             gearInner
-              .circle(Math.cos(a) * 48, Math.sin(a) * 48, 4)
+              .circle(Math.cos(a) * 77, Math.sin(a) * 77, 4)
               .fill({ color: 0xfef3c7 });
           }
           gearInner.rotation = -elapsed * 0.65 * speedMult;
@@ -601,10 +601,10 @@ export function BossViewportPixi({
               .fill({ color: coreColor, alpha: 0.9 });
             bossBody.circle(0, 0, 7).fill({ color: 0xffffff, alpha: 0.95 });
           } else {
-            bossBody.circle(0, 0, 45).stroke({
-              width: 3,
+            bossBody.circle(0, 0, 73).stroke({
+              width: 3.5,
               color: isPhase2 ? 0xff4d4f : 0xf59e0b,
-              alpha: 0.9,
+              alpha: 0.95,
             });
           }
         } else if (b.id === 'chronos_wyrm') {
@@ -613,30 +613,30 @@ export function BossViewportPixi({
           const primaryRing = b.temporalStance === 'rewind' ? 0x38bdf8 : 0xfbbf24;
           const secondaryRing = b.temporalStance === 'rewind' ? 0xfbbf24 : 0x38bdf8;
 
-          gearOuter.circle(0, 0, 74).stroke({
+          gearOuter.circle(0, 0, 92).stroke({
             width: 3,
             color: primaryRing,
-            alpha: 0.78,
+            alpha: 0.82,
           });
           for (let i = 0; i < 12; i++) {
             const a = (i / 12) * Math.PI * 2;
-            const inner = i % 3 === 0 ? 64 : 69;
+            const inner = i % 3 === 0 ? 82 : 87;
             gearOuter
               .moveTo(Math.cos(a) * inner, Math.sin(a) * inner)
-              .lineTo(Math.cos(a) * 76, Math.sin(a) * 76)
-              .stroke({ width: i % 3 === 0 ? 3 : 1.5, color: primaryRing, alpha: 0.9 });
+              .lineTo(Math.cos(a) * 95, Math.sin(a) * 95)
+              .stroke({ width: i % 3 === 0 ? 3 : 1.5, color: primaryRing, alpha: 0.92 });
           }
           gearOuter.rotation = elapsed * 0.55 * dir * speedMult;
 
-          gearInner.circle(0, 0, 56).stroke({
+          gearInner.circle(0, 0, 79).stroke({
             width: 2.5,
             color: secondaryRing,
-            alpha: 0.85,
+            alpha: 0.88,
           });
           for (let i = 0; i < 4; i++) {
             const a = (i / 4) * Math.PI * 2;
             gearInner
-              .circle(Math.cos(a) * 56, Math.sin(a) * 56, 4.5)
+              .circle(Math.cos(a) * 79, Math.sin(a) * 79, 4.5)
               .fill({ color: secondaryRing });
           }
           gearInner.rotation = -elapsed * 0.9 * dir * speedMult;
@@ -659,28 +659,28 @@ export function BossViewportPixi({
               alpha: 0.95,
             });
           } else {
-            bossBody.circle(0, 0, 45).stroke({
-              width: 3,
+            bossBody.circle(0, 0, 73).stroke({
+              width: 3.5,
               color: primaryRing,
-              alpha: 0.92,
+              alpha: 0.95,
             });
           }
         } else {
           // Kalos Prime: Void Alchemist
-          gearOuter.circle(0, 0, 74).stroke({
-            width: 2,
-            color: isPhase2 ? 0xe879f9 : 0xa855f7,
-            alpha: 0.65,
+          gearOuter.circle(0, 0, 90).stroke({
+            width: 2.5,
+            color: isPhase2 ? 0xe879f9 : 0x8b5cf6,
+            alpha: 0.72,
           });
           for (let i = 0; i < 3; i++) {
             const a = elapsed * 0.9 * speedMult + (i * Math.PI * 2) / 3;
-            const ox = Math.cos(a) * 74;
-            const oy = Math.sin(a) * 52;
+            const ox = Math.cos(a) * 90;
+            const oy = Math.sin(a) * 68;
             const isFilled = i < b.voidGauge;
             gearOuter
-              .circle(ox, oy, 9)
-              .fill({ color: isFilled ? 0xe879f9 : 0x1e1b4b, alpha: 0.95 })
-              .stroke({ width: 2, color: 0x38bdf8 });
+              .circle(ox, oy, 8.5)
+              .fill({ color: isFilled ? 0xe879f9 : 0xffffff, alpha: 0.95 })
+              .stroke({ width: 2.5, color: 0x38bdf8 });
           }
 
           if (!hasSprite) {
@@ -700,10 +700,10 @@ export function BossViewportPixi({
               .circle(10, -8, 4.5)
               .fill({ color: 0x38bdf8 });
           } else {
-            bossBody.circle(0, 0, 45).stroke({
-              width: 3,
-              color: isPhase2 ? 0xe879f9 : 0xa855f7,
-              alpha: 0.9,
+            bossBody.circle(0, 0, 73).stroke({
+              width: 3.5,
+              color: isPhase2 ? 0xe879f9 : 0x8b5cf6,
+              alpha: 0.95,
             });
           }
 
@@ -712,11 +712,11 @@ export function BossViewportPixi({
               const a1 = (i / 6) * Math.PI * 2 + elapsed * 0.25 * speedMult;
               const a2 = ((i + 1) / 6) * Math.PI * 2 + elapsed * 0.25 * speedMult;
               barrierGfx
-                .moveTo(Math.cos(a1) * 62, Math.sin(a1) * 62)
-                .lineTo(Math.cos(a2) * 62, Math.sin(a2) * 62)
-                .stroke({ width: 3, color: 0xc084fc, alpha: 0.85 });
+                .moveTo(Math.cos(a1) * 84, Math.sin(a1) * 84)
+                .lineTo(Math.cos(a2) * 84, Math.sin(a2) * 84)
+                .stroke({ width: 3.5, color: 0x7c3aed, alpha: 0.85 });
             }
-            barrierGfx.circle(0, 0, 62).fill({ color: 0xa855f7, alpha: 0.12 });
+            barrierGfx.circle(0, 0, 84).fill({ color: 0xa855f7, alpha: 0.1 });
           }
         }
       };

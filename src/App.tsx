@@ -70,6 +70,7 @@ import type {
   BaseColor,
   BossClearRecord,
   BossId,
+  CardColor,
   DifficultyTier,
   DiscoveredAiCard,
   GameState,
@@ -77,6 +78,31 @@ import type {
   RoundPhase,
   SeekerId,
 } from './types/game';
+
+function getCardArtUrl(color: CardColor): string {
+  switch (color) {
+    case 'red':
+    case 'dual_rg':
+    case 'dual_rb':
+      return '/assets/card_red.jpg';
+    case 'green':
+    case 'dual_gb':
+      return '/assets/card_green.jpg';
+    case 'blue':
+      return '/assets/card_blue.jpg';
+    case 'lantern':
+    case 'colorless':
+      return '/assets/card_lantern.jpg';
+  }
+}
+
+function getSeekerPortraitUrl(seekerId: SeekerId): string {
+  return `/assets/seeker_${seekerId}.jpg`;
+}
+
+function getBossPortraitUrl(bossId: BossId): string {
+  return `/assets/${bossId}.jpg`;
+}
 
 const PHASE_LABEL: Record<RoundPhase, string> = {
   boss_stance: '보스 태세',
@@ -527,6 +553,22 @@ export function App() {
         </div>
 
         <div className="player-strip">
+          <div className="seeker-party-chips">
+            {game.players.map((p) => (
+              <div
+                key={p.slot}
+                className={`seeker-avatar-chip seeker-${p.primaryColor}`}
+                title={`${p.name} (P${p.slot + 1})`}
+              >
+                <img
+                  src={getSeekerPortraitUrl(p.seekerId)}
+                  alt={p.name}
+                  className="seeker-avatar-img"
+                />
+                <span className="seeker-slot-label">P{p.slot + 1}</span>
+              </div>
+            ))}
+          </div>
           <div className="hp-mini">
             <Heart size={15} className="heart-icon" />
             <div className="hp-mini-track">
@@ -563,6 +605,11 @@ export function App() {
                 : ''
             }`}
           >
+            <img
+              src={getCardArtUrl(game.activeChain.mainCard.color)}
+              alt={game.activeChain.mainCard.name}
+              className="chain-card-thumb"
+            />
             <span className="chain-label">콤보</span>
             <strong className="chain-name">{game.activeChain.mainCard.name}</strong>
             <span className="chain-count">
@@ -640,9 +687,16 @@ export function App() {
       {/* SIDE TEST DECK (dev, wide screens) */}
       <aside className="test-deck-panel" aria-label="테스트 덱">
         <div className="deck-panel-head">
-          <div className="deck-panel-title">
-            <span className="deck-eyebrow">TEST DECK</span>
-            <h3>{SEEKER_ROSTER[deckSeekerId].name} 덱</h3>
+          <div className="deck-seeker-head">
+            <img
+              src={getSeekerPortraitUrl(deckSeekerId)}
+              alt={SEEKER_ROSTER[deckSeekerId].name}
+              className="deck-seeker-avatar"
+            />
+            <div className="deck-panel-title">
+              <span className="deck-eyebrow">SEEKER DECK</span>
+              <h3>{SEEKER_ROSTER[deckSeekerId].name}</h3>
+            </div>
           </div>
           <div className="deck-tabs">
             <button
@@ -672,14 +726,18 @@ export function App() {
               onClick={() => handleScanCode(card.id)}
               title={`${card.id} 사용`}
             >
-              <span className="deck-swatch" />
+              <img
+                src={getCardArtUrl(card.color)}
+                alt={card.name}
+                className="deck-card-thumb"
+              />
               <span className="deck-row-main">
                 <strong>{card.name}</strong>
                 <small>
-                  {card.id} · 위력 {card.power} · 부스트 +{card.boostValue}
+                  위력 {card.power} · 부스트 +{card.boostValue}
                 </small>
               </span>
-              <span className="deck-scan-badge">스캔</span>
+              <span className="deck-scan-badge">사용</span>
             </button>
           ))}
         </div>
@@ -1414,21 +1472,30 @@ export function App() {
                       }`}
                       onClick={() => setBossId(id)}
                     >
-                      <div className="setup-opt-top">
-                        <strong>{tpl.name}</strong>
-                        {rec && (
-                          <span className="codex-clear-pill">
-                            최고 {rec.bestRank} · {rec.clears}승
-                            {rec.bestDifficulty && rec.bestDifficulty !== 'normal'
-                              ? ` (${rec.bestDifficulty.toUpperCase()})`
-                              : ''}
+                      <div className="setup-boss-row">
+                        <img
+                          src={getBossPortraitUrl(id)}
+                          alt={tpl.name}
+                          className="setup-boss-thumb"
+                        />
+                        <div className="setup-boss-info">
+                          <div className="setup-opt-top">
+                            <strong>{tpl.name}</strong>
+                            {rec && (
+                              <span className="codex-clear-pill">
+                                최고 {rec.bestRank} · {rec.clears}승
+                                {rec.bestDifficulty && rec.bestDifficulty !== 'normal'
+                                  ? ` (${rec.bestDifficulty.toUpperCase()})`
+                                  : ''}
+                              </span>
+                            )}
+                          </div>
+                          <span>
+                            {tpl.subtitle} · {scaled.maxHp} HP · 방패 {scaled.baseShields.red}/
+                            {scaled.baseShields.green}/{scaled.baseShields.blue}
                           </span>
-                        )}
+                        </div>
                       </div>
-                      <span>
-                        {tpl.subtitle} · {scaled.maxHp} HP · 방패 {scaled.baseShields.red}/
-                        {scaled.baseShields.green}/{scaled.baseShields.blue}
-                      </span>
                     </button>
                   );
                 })}
@@ -1438,29 +1505,43 @@ export function App() {
             <div className="setup-row">
               <div className="setup-group">
                 <label>P1 카드 덱</label>
-                <select
-                  value={p1Seeker}
-                  onChange={(e) => setP1Seeker(e.target.value as SeekerId)}
-                >
-                  {(Object.keys(SEEKER_ROSTER) as SeekerId[]).map((sid) => (
-                    <option key={sid} value={sid}>
-                      {SEEKER_ROSTER[sid].name}
-                    </option>
-                  ))}
-                </select>
+                <div className="setup-seeker-select-row">
+                  <img
+                    src={getSeekerPortraitUrl(p1Seeker)}
+                    alt={SEEKER_ROSTER[p1Seeker].name}
+                    className="setup-seeker-thumb"
+                  />
+                  <select
+                    value={p1Seeker}
+                    onChange={(e) => setP1Seeker(e.target.value as SeekerId)}
+                  >
+                    {(Object.keys(SEEKER_ROSTER) as SeekerId[]).map((sid) => (
+                      <option key={sid} value={sid}>
+                        {SEEKER_ROSTER[sid].name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
               <div className="setup-group">
                 <label>P2 카드 덱</label>
-                <select
-                  value={p2Seeker}
-                  onChange={(e) => setP2Seeker(e.target.value as SeekerId)}
-                >
-                  {(Object.keys(SEEKER_ROSTER) as SeekerId[]).map((sid) => (
-                    <option key={sid} value={sid}>
-                      {SEEKER_ROSTER[sid].name}
-                    </option>
-                  ))}
-                </select>
+                <div className="setup-seeker-select-row">
+                  <img
+                    src={getSeekerPortraitUrl(p2Seeker)}
+                    alt={SEEKER_ROSTER[p2Seeker].name}
+                    className="setup-seeker-thumb"
+                  />
+                  <select
+                    value={p2Seeker}
+                    onChange={(e) => setP2Seeker(e.target.value as SeekerId)}
+                  >
+                    {(Object.keys(SEEKER_ROSTER) as SeekerId[]).map((sid) => (
+                      <option key={sid} value={sid}>
+                        {SEEKER_ROSTER[sid].name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
             </div>
 

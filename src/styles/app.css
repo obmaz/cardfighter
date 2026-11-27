@@ -3016,11 +3016,6 @@ body {
   box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
 }
 
-.icon-btn:hover {
-  background: #f8fafc;
-  color: #0f172a;
-}
-
 /* --- ROUND STRIP --- */
 .round-chip {
   background: #ffffff;
@@ -3634,12 +3629,6 @@ body {
   border: 1px solid #e8edf4;
   text-align: left;
   color: #0f172a;
-  transition: background 0.12s ease, border-color 0.12s ease;
-}
-
-.deck-row:hover:not(:disabled) {
-  background: #fff7e6;
-  border-color: #fcd34d;
 }
 
 .deck-row:disabled {
@@ -3991,4 +3980,130 @@ body {
   background: #f1f5f9;
   border-color: #e2e8f0;
   color: #475569;
+}
+
+/* ============================================================
+   GENERATIVE ARTWORK INTEGRATION (SEEKERS, CARDS, BOSS THUMBS)
+   ============================================================ */
+
+.seeker-party-chips {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.seeker-avatar-chip {
+  position: relative;
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  padding: 2px;
+  background: #ffffff;
+  border: 2px solid #cbd5e1;
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.1);
+}
+
+.seeker-avatar-chip.seeker-red { border-color: #ef4444; }
+.seeker-avatar-chip.seeker-green { border-color: #10b981; }
+.seeker-avatar-chip.seeker-blue { border-color: #0ea5e9; }
+
+.seeker-avatar-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 999px;
+  display: block;
+}
+
+.seeker-slot-label {
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  font-size: 9px;
+  font-weight: 800;
+  line-height: 1;
+  padding: 2px 4px;
+  border-radius: 999px;
+  background: #0f172a;
+  color: #ffffff;
+  border: 1px solid #ffffff;
+}
+
+.chain-card-thumb {
+  width: 24px;
+  height: 32px;
+  object-fit: cover;
+  border-radius: 5px;
+  border: 1px solid rgba(15, 23, 42, 0.16);
+  flex-shrink: 0;
+}
+
+.deck-seeker-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.deck-seeker-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  object-fit: cover;
+  border: 2px solid #e2e8f0;
+  flex-shrink: 0;
+}
+
+.deck-card-thumb {
+  width: 30px;
+  height: 40px;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 1px solid #cbd5e1;
+  flex-shrink: 0;
+}
+
+.setup-boss-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+}
+
+.setup-boss-thumb {
+  width: 46px;
+  height: 46px;
+  border-radius: 10px;
+  object-fit: cover;
+  border: 1px solid #cbd5e1;
+  flex-shrink: 0;
+}
+
+.setup-boss-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.setup-seeker-select-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.setup-seeker-thumb {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  object-fit: cover;
+  border: 1px solid #cbd5e1;
+  flex-shrink: 0;
+}
+
+.setup-seeker-select-row select {
+  flex: 1;
+  min-width: 0;
 }
