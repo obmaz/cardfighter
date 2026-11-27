@@ -25,7 +25,7 @@ import {
   GAUNTLET_ORDER,
   getScaledBossStats,
 } from './data/bosses';
-import { SEEKER_ROSTER } from './data/cards';
+import { SEEKER_ROSTER, getCardsForSeeker } from './data/cards';
 import { RELIC_CATALOG, RELIC_LIST } from './data/relics';
 import {
   advanceGauntletStage,
@@ -130,6 +130,7 @@ export function App() {
   const [infoOpen, setInfoOpen] = useState(false);
   const [scanSheetOpen, setScanSheetOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [deckTab, setDeckTab] = useState<'p1' | 'p2'>('p1');
   const [aiConfig, setAiConfig] = useState<AiAgentConfig>(() => loadAiConfig());
   const [aiBusy, setAiBusy] = useState(false);
   const [codex, setCodex] = useState<Partial<Record<BossId, BossClearRecord>>>(() =>
@@ -448,6 +449,9 @@ export function App() {
       ? computeRaidGrade(game)
       : null;
   const bossRecord = codex[game.boss.id];
+  const deckSeekerId =
+    deckTab === 'p1' ? game.players[0].seekerId : game.players[1].seekerId;
+  const deckCards = getCardsForSeeker(deckSeekerId);
 
   return (
     <div className="app-layout">
@@ -632,6 +636,54 @@ export function App() {
         )}
       </footer>
       </div>
+
+      {/* SIDE TEST DECK (dev, wide screens) */}
+      <aside className="test-deck-panel" aria-label="테스트 덱">
+        <div className="deck-panel-head">
+          <div className="deck-panel-title">
+            <span className="deck-eyebrow">TEST DECK</span>
+            <h3>{SEEKER_ROSTER[deckSeekerId].name} 덱</h3>
+          </div>
+          <div className="deck-tabs">
+            <button
+              type="button"
+              className={deckTab === 'p1' ? 'active' : ''}
+              onClick={() => setDeckTab('p1')}
+            >
+              P1
+            </button>
+            <button
+              type="button"
+              className={deckTab === 'p2' ? 'active' : ''}
+              onClick={() => setDeckTab('p2')}
+            >
+              P2
+            </button>
+          </div>
+        </div>
+        <p className="deck-help">카드를 누르면 QR 스캔과 동일하게 발동됩니다.</p>
+        <div className="deck-panel-list">
+          {deckCards.map((card) => (
+            <button
+              key={card.id}
+              type="button"
+              className={`deck-row deck-${card.color}`}
+              disabled={game.phase !== 'coop_turn'}
+              onClick={() => handleScanCode(card.id)}
+              title={`${card.id} 사용`}
+            >
+              <span className="deck-swatch" />
+              <span className="deck-row-main">
+                <strong>{card.name}</strong>
+                <small>
+                  {card.id} · 위력 {card.power} · 부스트 +{card.boostValue}
+                </small>
+              </span>
+              <span className="deck-scan-badge">스캔</span>
+            </button>
+          ))}
+        </div>
+      </aside>
 
       {/* MENU SHEET */}
       {menuOpen && (

@@ -3519,3 +3519,476 @@ body {
 .sheet-body {
   scrollbar-color: #cbd5e1 transparent;
 }
+
+/* ============================================================
+   SIDE TEST DECK (dev rail, wide screens, light)
+   ============================================================ */
+
+.app-layout {
+  max-width: 980px;
+  gap: 12px;
+}
+
+.app-layout .raid-shell.game-shell {
+  flex: 0 1 560px;
+}
+
+.test-deck-panel {
+  flex: 0 0 340px;
+  width: 340px;
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 18px;
+  padding: 12px;
+  box-shadow: 0 2px 12px rgba(15, 23, 42, 0.05);
+}
+
+.deck-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.deck-panel-title {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.deck-eyebrow {
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  color: #b45309;
+}
+
+.deck-panel-title h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 800;
+  color: #0f172a;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.deck-tabs {
+  display: flex;
+  gap: 4px;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  border-radius: 9px;
+  padding: 3px;
+  flex-shrink: 0;
+}
+
+.deck-tabs button {
+  padding: 4px 12px;
+  border-radius: 6px;
+  background: transparent;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.deck-tabs button.active {
+  background: #f59e0b;
+  color: #ffffff;
+}
+
+.deck-help {
+  margin: 0;
+  font-size: 10px;
+  line-height: 1.4;
+  color: #94a3b8;
+  flex-shrink: 0;
+}
+
+.deck-panel-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-right: 2px;
+  overscroll-behavior: contain;
+}
+
+.deck-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  border-radius: 10px;
+  background: #f8fafc;
+  border: 1px solid #e8edf4;
+  text-align: left;
+  color: #0f172a;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+.deck-row:hover:not(:disabled) {
+  background: #fff7e6;
+  border-color: #fcd34d;
+}
+
+.deck-row:disabled {
+  opacity: 0.5;
+}
+
+.deck-swatch {
+  width: 5px;
+  align-self: stretch;
+  border-radius: 999px;
+  background: #94a3b8;
+  flex-shrink: 0;
+}
+
+.deck-red .deck-swatch { background: #ef4444; }
+.deck-green .deck-swatch { background: #10b981; }
+.deck-blue .deck-swatch { background: #0ea5e9; }
+.deck-lantern .deck-swatch { background: #f59e0b; }
+.deck-dual_rg .deck-swatch { background: linear-gradient(180deg, #ef4444, #10b981); }
+.deck-dual_gb .deck-swatch { background: linear-gradient(180deg, #10b981, #0ea5e9); }
+.deck-dual_rb .deck-swatch { background: linear-gradient(180deg, #ef4444, #0ea5e9); }
+.deck-colorless .deck-swatch { background: linear-gradient(180deg, #cbd5e1, #94a3b8); }
+
+.deck-row-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.deck-row-main strong {
+  font-size: 12px;
+  color: #0f172a;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.deck-row-main small {
+  font-size: 10px;
+  color: #94a3b8;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.deck-scan-badge {
+  flex-shrink: 0;
+  padding: 5px 11px;
+  border-radius: 8px;
+  background: #fef3c7;
+  border: 1px solid #fcd34d;
+  color: #92400e;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+@media (max-width: 960px) {
+  .test-deck-panel {
+    display: none;
+  }
+  .app-layout {
+    max-width: 560px;
+  }
+}
+
+/* ============================================================
+   LIGHT OVERLAYS (setup / gimmick / result / drawer / AI)
+   ============================================================ */
+
+.modal-backdrop {
+  background: rgba(15, 23, 42, 0.38);
+}
+
+.choice-modal,
+.result-modal,
+.setup-modal,
+.drawer-panel {
+  background: #ffffff;
+  border-color: #e2e8f0;
+  color: #0f172a;
+  box-shadow: 0 18px 48px rgba(15, 23, 42, 0.18);
+  --text-main: #0f172a;
+  --text-muted: #64748b;
+  --border-subtle: #e2e8f0;
+}
+
+.choice-modal h3,
+.setup-modal h3,
+.result-modal h2,
+.drawer-header h3 {
+  color: #0f172a;
+}
+
+.drawer-sub,
+.gimmick-list,
+.result-end-reason,
+.cheat-rules-line {
+  color: #475569;
+}
+
+.manual-qr-form input,
+.text-input,
+.setup-row select {
+  background: #f8fafc;
+  border-color: #e2e8f0;
+  color: #0f172a;
+}
+
+.drawer-tabs button {
+  background: #f1f5f9;
+  color: #475569;
+  border: 1px solid #e2e8f0;
+}
+
+.drawer-tabs button.active {
+  background: #f59e0b;
+  border-color: #f59e0b;
+  color: #ffffff;
+}
+
+.sim-card {
+  background: #f8fafc;
+  border-color: #e2e8f0;
+  color: #0f172a;
+}
+
+.sim-code {
+  color: #64748b;
+}
+
+.sim-card-desc,
+.sim-card-top {
+  color: #64748b;
+}
+
+.sim-card-name {
+  color: #0f172a;
+}
+
+.btn-sim-play {
+  background: #e0f2fe;
+  color: #0369a1;
+  border: 1px solid #bae6fd;
+}
+
+.btn-sim-qr {
+  background: #f1f5f9;
+  color: #475569;
+  border: 1px solid #e2e8f0;
+}
+
+.qr-preview-box {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  color: #0f172a;
+}
+
+.qr-preview-head span {
+  color: #b45309;
+}
+
+.setup-group label {
+  color: #64748b;
+}
+
+.setup-opt,
+.relic-opt,
+.difficulty-opt,
+.mode-toggle-btn {
+  background: #f8fafc;
+  color: #0f172a;
+  border-color: #e2e8f0;
+}
+
+.setup-opt span,
+.relic-opt small,
+.difficulty-opt small {
+  color: #64748b;
+}
+
+.setup-opt.selected,
+.relic-opt.selected,
+.difficulty-opt.selected,
+.mode-toggle-btn.selected {
+  background: #fffbeb;
+  border-color: #f59e0b;
+  color: #0f172a;
+}
+
+.difficulty-opt-heroic.selected {
+  background: #f0f9ff;
+  border-color: #0ea5e9;
+}
+
+.difficulty-opt-abyss.selected {
+  background: #faf5ff;
+  border-color: #a855f7;
+}
+
+.mode-toggle-btn.selected {
+  color: #92400e;
+}
+
+.codex-clear-pill,
+.codex-record-bar {
+  background: #fffbeb;
+  border-color: #fde68a;
+  color: #92400e;
+}
+
+.gauntlet-preview-strip {
+  background: #f0f9ff;
+  border-color: #bae6fd;
+  color: #0369a1;
+}
+
+.cheat-melt {
+  background: linear-gradient(135deg, #fff1f2, #e0f2fe);
+  border-color: #fdba74;
+  color: #9a3412;
+}
+
+.cheat-chrono {
+  background: linear-gradient(135deg, #e0f2fe, #d1fae5);
+  border-color: #7dd3fc;
+  color: #075985;
+}
+
+.cheat-shatter {
+  background: linear-gradient(135deg, #fff1f2, #fef3c7);
+  border-color: #fcd34d;
+  color: #92400e;
+}
+
+.cheat-rules-line {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+}
+
+.gimmick-list {
+  color: #475569;
+}
+
+.stat-cell {
+  background: #f8fafc;
+  border-color: #e2e8f0;
+}
+
+.stat-cell strong {
+  color: #0f172a;
+}
+
+.rank-badge {
+  background: #f8fafc;
+  border-color: #e2e8f0;
+  color: #0f172a;
+}
+
+.rank-S {
+  background: linear-gradient(135deg, #fef3c7, #ffedd5);
+  border-color: #fbbf24;
+  color: #92400e;
+}
+
+.rank-A {
+  background: #e0f2fe;
+  border-color: #7dd3fc;
+  color: #075985;
+}
+
+.rank-B {
+  background: #d1fae5;
+  border-color: #6ee7b7;
+  color: #047857;
+}
+
+.rank-C {
+  background: #f1f5f9;
+  border-color: #cbd5e1;
+  color: #475569;
+}
+
+.gauntlet-complete-banner {
+  background: linear-gradient(135deg, #fef3c7, #e0f2fe);
+  border-color: #fcd34d;
+  color: #92400e;
+}
+
+.ai-demo-box {
+  background: #f0f9ff;
+  border-color: #bae6fd;
+}
+
+.ai-demo-box strong {
+  color: #0369a1;
+}
+
+.ai-demo-box p {
+  color: #475569;
+}
+
+.ai-battle-cry,
+.ai-reaction-hint {
+  color: #0369a1;
+}
+
+.ai-test-msg.ok {
+  background: #ecfdf5;
+  color: #047857;
+  border-color: #a7f3d0;
+}
+
+.ai-test-msg.err {
+  background: #fef2f2;
+  color: #b91c1c;
+  border-color: #fecaca;
+}
+
+.vision-sample-card {
+  background: #f8fafc;
+  border-color: #e2e8f0;
+  color: #0f172a;
+}
+
+.vision-sample-body strong {
+  color: #0f172a;
+}
+
+.vision-sample-body small,
+.grimoire-toolbar,
+.grimoire-empty {
+  color: #64748b;
+}
+
+.grimoire-empty strong {
+  color: #0f172a;
+}
+
+.btn-sample-ai {
+  background: #fffbeb;
+  border-color: #fde68a;
+  color: #92400e;
+}
+
+/* AI modal header close icon */
+.ai-modal .icon-btn {
+  background: #f1f5f9;
+  border-color: #e2e8f0;
+  color: #475569;
+}
