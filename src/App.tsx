@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Bot,
+  Camera,
   Flame,
   Gem,
   Heart,
   HelpCircle,
+  Menu,
+  QrCode,
   RotateCcw,
   Shield,
   Sparkles,
@@ -13,6 +16,7 @@ import {
   Undo2,
   Volume2,
   VolumeX,
+  X,
   Zap,
 } from 'lucide-react';
 import {
@@ -123,6 +127,9 @@ export function App() {
   const [setupOpen, setSetupOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [aiSettingsOpen, setAiSettingsOpen] = useState(false);
+  const [infoOpen, setInfoOpen] = useState(false);
+  const [scanSheetOpen, setScanSheetOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const [aiConfig, setAiConfig] = useState<AiAgentConfig>(() => loadAiConfig());
   const [aiBusy, setAiBusy] = useState(false);
   const [codex, setCodex] = useState<Partial<Record<BossId, BossClearRecord>>>(() =>
@@ -155,6 +162,9 @@ export function App() {
         else if (drawerOpen) setDrawerOpen(false);
         else if (helpOpen) setHelpOpen(false);
         else if (setupOpen) setSetupOpen(false);
+        else if (scanSheetOpen) setScanSheetOpen(false);
+        else if (infoOpen) setInfoOpen(false);
+        else if (menuOpen) setMenuOpen(false);
         else if (game.pendingColorChoice) {
           setGame((g) => clearPendingColorChoice(g));
         }
@@ -162,7 +172,16 @@ export function App() {
       }
 
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && !e.shiftKey) {
-        if (setupOpen || helpOpen || aiSettingsOpen || drawerOpen || game.pendingColorChoice) {
+        if (
+          setupOpen ||
+          helpOpen ||
+          aiSettingsOpen ||
+          drawerOpen ||
+          infoOpen ||
+          scanSheetOpen ||
+          menuOpen ||
+          game.pendingColorChoice
+        ) {
           return;
         }
         const tag = (e.target as HTMLElement | null)?.tagName;
@@ -180,6 +199,9 @@ export function App() {
           helpOpen ||
           aiSettingsOpen ||
           drawerOpen ||
+          infoOpen ||
+          scanSheetOpen ||
+          menuOpen ||
           game.pendingColorChoice
         ) {
           return;
@@ -219,6 +241,9 @@ export function App() {
     drawerOpen,
     helpOpen,
     setupOpen,
+    infoOpen,
+    scanSheetOpen,
+    menuOpen,
     game.pendingColorChoice,
     game.phase,
     handleUndo,
@@ -425,22 +450,24 @@ export function App() {
   const bossRecord = codex[game.boss.id];
 
   return (
-    <div className="raid-shell">
-      {/* SLIM TOP HUD */}
-      <header className="top-bar">
-        <div className="brand-badge" title="AETHERIA: 비전 보스 레이드">
-          <span className="brand-title">AETHERIA</span>
-          <small className="brand-sub">비전 보스 레이드</small>
-        </div>
-
-        <div className="boss-header-info">
-          <div className="boss-title-row">
-            <span className="boss-name">{game.boss.name}</span>
-            <span className="boss-sub">
-              {game.boss.phase === 2 ? bossTpl.phase2Title : game.boss.subtitle}
-            </span>
+    <div className="app-layout">
+    <div className="raid-shell game-shell">
+      {/* SIMPLE TOP HUD */}
+      <header className="hud-top">
+        <div className="boss-hud">
+          <div className="boss-hud-row">
+            <span className="boss-hud-name">{game.boss.name}</span>
+            {game.boss.phase === 2 && <span className="mini-tag tag-danger">PHASE 2</span>}
+            {game.gauntletMode && (
+              <span className="mini-tag">
+                건틀릿 {game.gauntletStage + 1}/{GAUNTLET_ORDER.length}
+              </span>
+            )}
+            {game.difficulty !== 'normal' && (
+              <span className="mini-tag tag-warn">{game.difficulty.toUpperCase()}</span>
+            )}
           </div>
-          <div className="boss-hp-track">
+          <div className="boss-hp-track boss-hp-large">
             <div
               className={`boss-hp-fill ${game.boss.phase === 2 ? 'phase2-hp' : ''}`}
               style={{ width: `${bossHpPct}%` }}
@@ -453,411 +480,640 @@ export function App() {
               />
             )}
             <span className="boss-hp-text">
-              {game.boss.hp} / {game.boss.maxHp} HP
+              {game.boss.hp} / {game.boss.maxHp}
             </span>
           </div>
         </div>
-
-        <div className="round-phase-cluster">
-          {game.gauntletMode && (
-            <div className="gauntlet-pill">
-              건틀릿 {game.gauntletStage + 1}/{GAUNTLET_ORDER.length}
-            </div>
-          )}
-          {game.difficulty !== 'normal' && (
-            <div className={`difficulty-pill difficulty-${game.difficulty}`}>
-              {game.difficulty.toUpperCase()}
-            </div>
-          )}
-          {game.boss.phase === 2 && (
-            <div className="phase2-pill">PHASE 2</div>
-          )}
-          <div className="round-pill">
-            R<strong>{game.round}</strong>/{game.maxRounds}
-          </div>
-          <div className={`phase-pill phase-${game.phase}`}>
-            {PHASE_LABEL[game.phase]}
-          </div>
-        </div>
-
-        <div className="top-actions">
+        <div className="hud-top-actions">
           <button
             type="button"
-            className={`btn-ghost ${isAiConfigured(aiConfig) ? 'btn-ai-ready' : ''}`}
-            onClick={() => setAiSettingsOpen(true)}
-            title="AI 비전 에이전트 연결 설정"
+            className="icon-btn"
+            onClick={() => setMenuOpen(true)}
+            aria-label="메뉴"
+            title="메뉴"
           >
-            <Bot size={15} />
-            {aiConfig.mode === 'demo'
-              ? '데모 AI'
-              : aiConfig.mode === 'local'
-                ? '로컬 AI'
-                : aiConfig.mode === 'gemini'
-                  ? 'Gemini'
-                  : 'OpenAI'}
-          </button>
-          <button
-            type="button"
-            className="btn-ghost"
-            onClick={() => setHelpOpen(true)}
-            title="보스 기믹 안내"
-          >
-            <HelpCircle size={15} />
-            기믹
-          </button>
-          <button
-            type="button"
-            className="btn-ghost"
-            onClick={() => setSetupOpen(true)}
-          >
-            <RotateCcw size={14} />
-            덱/유물
-          </button>
-          <button
-            type="button"
-            className="btn-ghost"
-            onClick={handleToggleMute}
-            aria-label="사운드 토글"
-          >
-            {muted ? <VolumeX size={15} /> : <Volume2 size={15} />}
+            <Menu size={20} />
           </button>
         </div>
       </header>
 
-      {/* CLEAN 2-ZONE ARENA */}
-      <main className="arena-grid">
-        {/* MAIN HERO STAGE: BOSS + COMPACT CAMERA */}
-        <section className="center-stage">
-          {game.logs.length === 0 && game.round === 1 && game.phase === 'coop_turn' && (
-            <div className="quick-start-tip">
-              빠른 시작: 카드를 비추고 [AI 카드 인식] 또는 [QR 테스트 → 비전 카드 샘플]로 바로 플레이!
-            </div>
-          )}
+      <main className="stage-column">
+        <div className="round-strip">
+          <span className="round-chip">
+            ROUND {game.round}/{game.maxRounds}
+          </span>
+          <span className={`phase-pill phase-${game.phase}`}>{PHASE_LABEL[game.phase]}</span>
+          <span className="intent-mini">
+            <Swords size={12} /> 예상 반격 <strong>{counterEst.net}</strong>
+          </span>
+        </div>
+
+        <div className="stage-wrap">
           <BossViewportPixi
             boss={game.boss}
             effectQueue={game.effectQueue}
             lastDiceRoll={game.lastDiceRoll}
             latestLog={game.logs[0] ?? null}
           />
-          <QrVisionScanner
-            onScan={(code) => handleScanCode(code)}
-            onCaptureForAi={(img) => void handleCaptureForAi(img)}
-            onOpenTestDeck={() => setDrawerOpen(true)}
-            onRequireAiConfig={() => {
-              setScanStatus({
-                text: '자동 인식을 사용하려면 먼저 AI 에이전트를 설정하세요.',
-                isError: true,
-              });
-              setAiSettingsOpen(true);
-            }}
-            aiConfigured={isAiConfigured(aiConfig)}
-            aiBusy={aiBusy}
-            disabled={game.phase !== 'coop_turn'}
-            lastScanStatus={scanStatus}
-          />
-        </section>
-
-        {/* SLIM TACTICAL HUD RAIL */}
-        <aside className="hud-rail">
-          <div className="relic-badge-pill" title={activeRelic.description}>
-            <Gem size={13} className="accent-amber" />
-            <span className="relic-badge-name">유물 · {activeRelic.name}</span>
-            <small className="relic-badge-sub">{activeRelic.subtitle}</small>
-          </div>
-          {game.lastReaction && (
-            <section
-              key={game.lastReaction.id}
-              className={`hud-block reaction-banner reaction-${game.lastReaction.kind}`}
-            >
-              <div className="reaction-head">
-                <Sparkles size={13} />
-                <strong>원소 반응 · {game.lastReaction.title}</strong>
-              </div>
-              <span className="reaction-detail">{game.lastReaction.detail}</span>
-            </section>
-          )}
-          {game.fieldEcho && (
-            <div className={`field-echo-pill echo-${game.fieldEcho.kind}`}>
-              <Sparkles size={12} />
-              <span>
-                {game.fieldEcho.title} · {game.fieldEcho.effectText}
-              </span>
+          {scanStatus && (
+            <div className={`scan-toast ${scanStatus.isError ? 'toast-err' : ''}`}>
+              {scanStatus.text}
             </div>
           )}
+        </div>
 
-          {game.lastAiAction && (
-            <section className="hud-block ai-callout-block">
-              <div className="hud-label">
-                <Bot size={14} className="accent-amber" /> AI: {game.lastAiAction.cardName}
-              </div>
-              <p className="ai-battle-cry">“{game.lastAiAction.battleCry}”</p>
-              {game.lastAiAction.reactionHint && (
-                <span className="ai-reaction-hint">{game.lastAiAction.reactionHint}</span>
-              )}
-            </section>
-          )}
-
-          {/* Next Boss Intent & Counter Forecast */}
-          <section className="hud-block intent-block">
-            <div className="hud-head-row">
-              <span className="hud-label">
-                <Swords size={14} /> {game.boss.intent.title}
-              </span>
-              {counterEst.weakened > 0 && (
-                <span className="intent-tag-weaken">-균열 {counterEst.weakened}</span>
-              )}
+        <div className="player-strip">
+          <div className="hp-mini">
+            <Heart size={15} className="heart-icon" />
+            <div className="hp-mini-track">
+              <div style={{ width: `${teamHpPct}%` }} />
             </div>
-            <div className="intent-number-row">
-              <span className="intent-dmg">{counterEst.net}</span>
-              <span className="intent-sub">
-                예상 {counterEst.raw} · 방어 -{counterEst.absorbed}
-                {game.boss.intent.pierceGuard > 0
-                  ? ` (관통 ${game.boss.intent.pierceGuard})`
-                  : ''}
-              </span>
-            </div>
-            <p className="intent-desc">{game.boss.intent.description}</p>
-            {game.boss.challenges.length > 0 && (
-              <div className="challenge-chips">
-                {game.boss.challenges.map((ch) => (
-                  <span key={ch.id} className="challenge-pill">
-                    <Zap size={11} /> {ch.name} ({COLOR_KO[ch.requiredColor]}으로 제거)
-                  </span>
-                ))}
-              </div>
-            )}
-          </section>
-
-          {/* Active Combo Slots */}
-          <section className="hud-block">
-            <div className="hud-head-row">
-              <span className="hud-label">
-                <Sparkles size={14} /> 콤보 체인
-              </span>
-              <div className="hud-head-actions">
-                <button
-                  type="button"
-                  className="mini-btn"
-                  disabled={undoStack.length === 0 || game.phase !== 'coop_turn'}
-                  onClick={handleUndo}
-                  title="직전 행동 실행 취소 (Ctrl+Z)"
-                >
-                  <Undo2 size={11} />
-                  되돌리기
-                </button>
-                {game.activeChain.mainCard && (
-                  <button
-                    type="button"
-                    className="mini-btn"
-                    onClick={() =>
-                      setGameState((prev) => ({
-                        game: commitCurrentChain(prev.game),
-                        undoStack: pushUndoSnapshot(prev.undoStack, prev.game),
-                      }))
-                    }
-                  >
-                    확정
-                  </button>
-                )}
-              </div>
-            </div>
-
-            <div className="combo-slots">
-              <div
-                className={`combo-pill ${
-                  game.activeChain.mainCard
-                    ? `filled dot-${game.activeChain.resolvedColor ?? 'red'}`
-                    : ''
-                }`}
-              >
-                <small>메인</small>
-                <strong>
-                  {game.activeChain.mainCard
-                    ? game.activeChain.mainCard.name
-                    : '카드 스캔'}
-                </strong>
-              </div>
-              <div className="combo-boosts">
-                {[0, 1].map((idx) => {
-                  const b = game.activeChain.boostCards[idx];
-                  return (
-                    <div
-                      key={idx}
-                      className={`combo-pill boost ${b ? 'filled' : ''}`}
-                    >
-                      <small>부스트 {idx + 1}</small>
-                      <strong>{b ? `+${b.boostValue}` : '—'}</strong>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-            <div className="tactical-hint-line">{getTacticalHint(game)}</div>
-          </section>
-
-          {/* Compact Recent Feed (max 4) */}
-          <section className="hud-block feed-block">
-            <div className="hud-label">최근 액션</div>
-            <div className="recent-feed">
-              {game.logs.length === 0 ? (
-                <span className="feed-empty">스캔 대기 중</span>
-              ) : (
-                game.logs.slice(0, 4).map((entry) => (
-                  <div
-                    key={entry.id}
-                    className={`feed-row feed-${entry.resolvedColor}`}
-                  >
-                    <span className="feed-name">
-                      {entry.isBoost ? '↳ ' : ''}
-                      {entry.cardName}
-                    </span>
-                    <strong className="feed-val">
-                      {entry.damageDealt > 0 ? `-${entry.damageDealt}` : '발동'}
-                    </strong>
-                  </div>
-                ))
-              )}
-            </div>
-          </section>
-        </aside>
-      </main>
-
-      {/* BOTTOM TACTILE BAR */}
-      <footer className="bottom-bar">
-        <div className="team-vital-box">
-          <div className="vital-header">
-            <span className="vital-title">
-              <Heart size={15} className="heart-icon" /> 팀 체력
-            </span>
             <strong>
               {game.teamHp}/{game.maxTeamHp}
             </strong>
           </div>
-          <div className="team-hp-track">
-            <div className="team-hp-fill" style={{ width: `${teamHpPct}%` }} />
+          <div className="stat-mini" title="방어막">
+            <Shield size={14} /> +{game.teamProtection}
           </div>
-          <div className="team-prot-row">
-            <Shield size={13} /> 방어막 <strong>+{game.teamProtection}</strong>
-          </div>
+          <button
+            type="button"
+            className={`stat-mini synergy-mini ${synergyReady ? 'is-ready' : ''}`}
+            disabled={!synergyReady || game.phase !== 'coop_turn'}
+            onClick={handleTriggerSynergy}
+            title={
+              synergyReady
+                ? '성좌 공명 발동 · 보스 방어 무시 10 피해'
+                : '합동 궁극기 게이지'
+            }
+          >
+            <Sparkles size={14} />
+            {synergyReady ? '궁극기!' : `${game.synergyGauge}%`}
+          </button>
         </div>
 
-        <div className="players-strip">
-          {game.players.map((player) => (
-            <div
-              key={player.slot}
-              className={`player-card player-${player.primaryColor}`}
+        {game.activeChain.mainCard && game.phase === 'coop_turn' && (
+          <div
+            className={`chain-bar ${
+              game.activeChain.resolvedColor
+                ? `chain-${game.activeChain.resolvedColor}`
+                : ''
+            }`}
+          >
+            <span className="chain-label">콤보</span>
+            <strong className="chain-name">{game.activeChain.mainCard.name}</strong>
+            <span className="chain-count">
+              +{game.activeChain.boostCards.length} 부스트
+            </span>
+            <button
+              type="button"
+              className="chain-confirm"
+              onClick={() =>
+                setGameState((prev) => ({
+                  game: commitCurrentChain(prev.game),
+                  undoStack: pushUndoSnapshot(prev.undoStack, prev.game),
+                }))
+              }
             >
-              <div className="player-identity">
-                <span className="player-slot-badge">P{player.slot + 1}</span>
-                <strong>{player.name.split(' ')[0]}</strong>
-                <span
-                  className={`lantern-icon ${player.lanternCharged ? 'charged' : ''}`}
-                  title={player.lanternCharged ? '랜턴 충전됨' : '랜턴 미충전'}
-                >
-                  <Flame size={14} />
-                  {player.lanternCharged ? '랜턴 ON' : '랜턴'}
+              확정
+            </button>
+          </div>
+        )}
+      </main>
+
+      <footer className="command-bar">
+        <button
+          type="button"
+          className="btn-big btn-scan"
+          onClick={() => setScanSheetOpen(true)}
+          disabled={game.phase !== 'coop_turn'}
+        >
+          <Camera size={20} />
+          카드 스캔
+        </button>
+
+        {game.phase === 'coop_turn' && (
+          <button
+            type="button"
+            className="btn-big btn-turn"
+            onClick={() =>
+              setGameState((prev) => ({
+                game: resolveBossCounterPhase(prev.game),
+                undoStack: clearUndoStack(),
+              }))
+            }
+          >
+            턴 종료
+          </button>
+        )}
+        {game.phase === 'boss_counter' && (
+          <button
+            type="button"
+            className="btn-big btn-turn"
+            onClick={() => setGame((g) => proceedToMaintenance(g))}
+          >
+            정비 단계로
+          </button>
+        )}
+        {game.phase === 'maintenance' && (
+          <button
+            type="button"
+            className="btn-big btn-turn"
+            onClick={() =>
+              setGameState((prev) => ({
+                game: startNextRound(prev.game),
+                undoStack: clearUndoStack(),
+              }))
+            }
+          >
+            {game.round >= game.maxRounds
+              ? '결과 판정'
+              : `${game.round + 1}라운드 시작`}
+          </button>
+        )}
+      </footer>
+      </div>
+
+      {/* MENU SHEET */}
+      {menuOpen && (
+        <div className="sheet-backdrop" onClick={() => setMenuOpen(false)}>
+          <div className="sheet-panel menu-sheet" onClick={(e) => e.stopPropagation()}>
+            <div className="sheet-head">
+              <h3>메뉴</h3>
+              <button
+                type="button"
+                className="sheet-close"
+                onClick={() => setMenuOpen(false)}
+                aria-label="닫기"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <div className="sheet-body menu-body">
+              <div className="menu-brand-row">
+                <span className="menu-brand">AETHERIA</span>
+                <span className="menu-brand-sub">
+                  {game.boss.name} · R{game.round}/{game.maxRounds}
                 </span>
               </div>
 
               <button
                 type="button"
-                className="btn-exhaust"
-                disabled={
-                  game.phase !== 'maintenance' && game.phase !== 'coop_turn'
-                }
-                onClick={() =>
-                  setGameState((prev) => ({
-                    game: declareExhaustion(prev.game, player.slot),
-                    undoStack:
-                      prev.game.phase === 'coop_turn'
-                        ? pushUndoSnapshot(prev.undoStack, prev.game)
-                        : prev.undoStack,
-                  }))
-                }
+                className="menu-item"
+                onClick={() => {
+                  setMenuOpen(false);
+                  setInfoOpen(true);
+                }}
               >
-                탈진
+                <Sparkles size={18} className="menu-icon" />
+                <span className="menu-item-text">
+                  <strong>전투 정보</strong>
+                  <small>콤보 · 반격 예측 · 유물 · 최근 액션</small>
+                </span>
+              </button>
+
+              <button
+                type="button"
+                className="menu-item"
+                onClick={() => {
+                  setMenuOpen(false);
+                  setDrawerOpen(true);
+                }}
+              >
+                <QrCode size={18} className="menu-icon" />
+                <span className="menu-item-text">
+                  <strong>테스트 덱 / QR</strong>
+                  <small>가상 스캔 카드 덱 (개발용)</small>
+                </span>
+              </button>
+
+              <button
+                type="button"
+                className="menu-item"
+                onClick={() => {
+                  setMenuOpen(false);
+                  setSetupOpen(true);
+                }}
+              >
+                <RotateCcw size={18} className="menu-icon" />
+                <span className="menu-item-text">
+                  <strong>덱 / 유물</strong>
+                  <small>보스·난이도·탐구자·유물 변경</small>
+                </span>
+              </button>
+
+              <button
+                type="button"
+                className="menu-item"
+                onClick={() => {
+                  setMenuOpen(false);
+                  setHelpOpen(true);
+                }}
+              >
+                <HelpCircle size={18} className="menu-icon" />
+                <span className="menu-item-text">
+                  <strong>보스 기믹</strong>
+                  <small>원소 반응표 · 보스 패턴 안내</small>
+                </span>
+              </button>
+
+              <button
+                type="button"
+                className="menu-item"
+                onClick={() => {
+                  setMenuOpen(false);
+                  setAiSettingsOpen(true);
+                }}
+              >
+                <Bot size={18} className="menu-icon" />
+                <span className="menu-item-text">
+                  <strong>AI 설정</strong>
+                  <small>
+                    현재:{' '}
+                    {aiConfig.mode === 'demo'
+                      ? '데모 AI'
+                      : aiConfig.mode === 'local'
+                        ? '로컬 AI'
+                        : aiConfig.mode === 'gemini'
+                          ? 'Gemini'
+                          : 'OpenAI'}
+                  </small>
+                </span>
+              </button>
+
+              <button type="button" className="menu-item" onClick={handleToggleMute}>
+                {muted ? (
+                  <VolumeX size={18} className="menu-icon" />
+                ) : (
+                  <Volume2 size={18} className="menu-icon" />
+                )}
+                <span className="menu-item-text">
+                  <strong>사운드 {muted ? '켜기' : '끄기'}</strong>
+                </span>
+              </button>
+
+              <button
+                type="button"
+                className="menu-item menu-item-danger"
+                onClick={() => {
+                  setMenuOpen(false);
+                  handleRestart();
+                }}
+              >
+                <RotateCcw size={18} className="menu-icon" />
+                <span className="menu-item-text">
+                  <strong>레이드 다시 시작</strong>
+                </span>
               </button>
             </div>
-          ))}
+          </div>
         </div>
+      )}
 
-        {/* SYNERGY ULTIMATE METER / BUTTON */}
-        <div className="synergy-box">
-          {synergyReady ? (
-            <button
-              type="button"
-              className="btn-synergy-ult"
-              disabled={game.phase !== 'coop_turn'}
-              onClick={handleTriggerSynergy}
-              title={
-                game.phase === 'coop_turn'
-                  ? '무적 결계 관통 10 피해 + 팀 방어 +3'
-                  : '협력 턴에 발동 가능'
-              }
-            >
-              <Sparkles size={15} />
-              성좌 공명 발동!
-            </button>
-          ) : (
-            <div className="synergy-meter-card">
-              <div className="synergy-meter-head">
-                <span>
-                  <Sparkles size={12} /> 합동 궁극기
-                </span>
-                <strong>{game.synergyGauge}%</strong>
-              </div>
-              <div className="synergy-track">
-                <div
-                  className="synergy-fill"
-                  style={{ width: `${Math.min(100, game.synergyGauge)}%` }}
-                />
-              </div>
+      {/* CARD SCAN SHEET */}
+      {scanSheetOpen && (
+        <div className="sheet-backdrop" onClick={() => setScanSheetOpen(false)}>
+          <div
+            className="sheet-panel sheet-panel-tall"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="sheet-head">
+              <h3>카드 스캔</h3>
+              <button
+                type="button"
+                className="sheet-close"
+                onClick={() => setScanSheetOpen(false)}
+                aria-label="닫기"
+              >
+                <X size={18} />
+              </button>
             </div>
-          )}
+            <div className="scanner-sheet-body">
+              <QrVisionScanner
+                onScan={(code) => handleScanCode(code)}
+                onCaptureForAi={(img) => void handleCaptureForAi(img)}
+                onOpenTestDeck={() => setDrawerOpen(true)}
+                onRequireAiConfig={() => {
+                  setScanStatus({
+                    text: '자동 인식을 사용하려면 먼저 AI 에이전트를 설정하세요.',
+                    isError: true,
+                  });
+                  setAiSettingsOpen(true);
+                }}
+                aiConfigured={isAiConfigured(aiConfig)}
+                aiBusy={aiBusy}
+                disabled={game.phase !== 'coop_turn'}
+                lastScanStatus={scanStatus}
+              />
+            </div>
+            <div className="sheet-foot-row">
+              <button
+                type="button"
+                className="quick-action"
+                onClick={() => {
+                  setScanSheetOpen(false);
+                  setDrawerOpen(true);
+                }}
+              >
+                <Sparkles size={15} />
+                QR 테스트 / 가상 카드 덱
+              </button>
+            </div>
+          </div>
         </div>
+      )}
 
-        <div className="phase-cta-box">
-          {game.phase === 'coop_turn' && (
-            <button
-              type="button"
-              className="btn-phase-next"
-              onClick={() =>
-                setGameState((prev) => ({
-                  game: resolveBossCounterPhase(prev.game),
-                  undoStack: clearUndoStack(),
-                }))
-              }
-            >
-              턴 종료 → 보스 반격
-            </button>
-          )}
-          {game.phase === 'boss_counter' && (
-            <button
-              type="button"
-              className="btn-phase-next"
-              onClick={() => setGame((g) => proceedToMaintenance(g))}
-            >
-              정비 단계로
-            </button>
-          )}
-          {game.phase === 'maintenance' && (
-            <button
-              type="button"
-              className="btn-phase-next btn-next-round"
-              onClick={() =>
-                setGameState((prev) => ({
-                  game: startNextRound(prev.game),
-                  undoStack: clearUndoStack(),
-                }))
-              }
-            >
-              {game.round >= game.maxRounds
-                ? '결과 판정'
-                : `${game.round + 1}라운드 시작`}
-            </button>
-          )}
+      {/* TACTICAL INFO SHEET */}
+      {infoOpen && (
+        <div className="sheet-backdrop" onClick={() => setInfoOpen(false)}>
+          <div className="sheet-panel" onClick={(e) => e.stopPropagation()}>
+            <div className="sheet-head">
+              <h3>전술 정보</h3>
+              <button
+                type="button"
+                className="sheet-close"
+                onClick={() => setInfoOpen(false)}
+                aria-label="닫기"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <div className="sheet-body">
+              <div className="sheet-quick-actions">
+                <button
+                  type="button"
+                  className="quick-action"
+                  onClick={() => {
+                    setInfoOpen(false);
+                    setDrawerOpen(true);
+                  }}
+                >
+                  <Sparkles size={15} className="accent-amber" />
+                  QR 테스트
+                </button>
+                <button
+                  type="button"
+                  className="quick-action"
+                  onClick={() => {
+                    setInfoOpen(false);
+                    setSetupOpen(true);
+                  }}
+                >
+                  <RotateCcw size={15} />
+                  덱/유물
+                </button>
+                <button
+                  type="button"
+                  className="quick-action"
+                  onClick={() => {
+                    setInfoOpen(false);
+                    setHelpOpen(true);
+                  }}
+                >
+                  <HelpCircle size={15} />
+                  보스 기믹
+                </button>
+                <button
+                  type="button"
+                  className="quick-action"
+                  onClick={() => {
+                    setInfoOpen(false);
+                    setAiSettingsOpen(true);
+                  }}
+                >
+                  <Bot size={15} className="accent-amber" />
+                  {aiConfig.mode === 'demo'
+                    ? '데모 AI'
+                    : aiConfig.mode === 'local'
+                      ? '로컬 AI'
+                      : aiConfig.mode === 'gemini'
+                        ? 'Gemini'
+                        : 'OpenAI'}
+                </button>
+              </div>
+
+              <div className="relic-badge-pill" title={activeRelic.description}>
+                <Gem size={13} className="accent-amber" />
+                <span className="relic-badge-name">유물 · {activeRelic.name}</span>
+                <small className="relic-badge-sub">{activeRelic.subtitle}</small>
+              </div>
+
+              {game.lastReaction && (
+                <section
+                  key={game.lastReaction.id}
+                  className={`hud-block reaction-banner reaction-${game.lastReaction.kind}`}
+                >
+                  <div className="reaction-head">
+                    <Sparkles size={13} />
+                    <strong>원소 반응 · {game.lastReaction.title}</strong>
+                  </div>
+                  <span className="reaction-detail">{game.lastReaction.detail}</span>
+                </section>
+              )}
+
+              {game.fieldEcho && (
+                <div className={`field-echo-pill echo-${game.fieldEcho.kind}`}>
+                  <Sparkles size={12} />
+                  <span>
+                    {game.fieldEcho.title} · {game.fieldEcho.effectText}
+                  </span>
+                </div>
+              )}
+
+              {game.lastAiAction && (
+                <section className="hud-block ai-callout-block">
+                  <div className="hud-label">
+                    <Bot size={14} className="accent-amber" /> AI: {game.lastAiAction.cardName}
+                  </div>
+                  <p className="ai-battle-cry">“{game.lastAiAction.battleCry}”</p>
+                  {game.lastAiAction.reactionHint && (
+                    <span className="ai-reaction-hint">{game.lastAiAction.reactionHint}</span>
+                  )}
+                </section>
+              )}
+
+              <section className="hud-block intent-block">
+                <div className="hud-head-row">
+                  <span className="hud-label">
+                    <Swords size={14} /> {game.boss.intent.title}
+                  </span>
+                  {counterEst.weakened > 0 && (
+                    <span className="intent-tag-weaken">-균열 {counterEst.weakened}</span>
+                  )}
+                </div>
+                <div className="intent-number-row">
+                  <span className="intent-dmg">{counterEst.net}</span>
+                  <span className="intent-sub">
+                    예상 {counterEst.raw} · 방어 -{counterEst.absorbed}
+                    {game.boss.intent.pierceGuard > 0
+                      ? ` (관통 ${game.boss.intent.pierceGuard})`
+                      : ''}
+                  </span>
+                </div>
+                <p className="intent-desc">{game.boss.intent.description}</p>
+                {game.boss.challenges.length > 0 && (
+                  <div className="challenge-chips">
+                    {game.boss.challenges.map((ch) => (
+                      <span key={ch.id} className="challenge-pill">
+                        <Zap size={11} /> {ch.name} ({COLOR_KO[ch.requiredColor]}으로 제거)
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </section>
+
+              <section className="hud-block">
+                <div className="hud-head-row">
+                  <span className="hud-label">
+                    <Flame size={14} /> 콤보 체인
+                  </span>
+                  <button
+                    type="button"
+                    className="btn-ghost btn-undo"
+                    onClick={handleUndo}
+                    disabled={undoStack.length === 0 || game.phase !== 'coop_turn'}
+                    title="직전 스캔 취소 (Ctrl+Z)"
+                  >
+                    <Undo2 size={11} />
+                    되돌리기
+                  </button>
+                  {game.activeChain.mainCard && (
+                    <button
+                      type="button"
+                      className="btn-ghost btn-confirm-chain"
+                      onClick={() =>
+                        setGameState((prev) => ({
+                          game: commitCurrentChain(prev.game),
+                          undoStack: pushUndoSnapshot(prev.undoStack, prev.game),
+                        }))
+                      }
+                    >
+                      확정
+                    </button>
+                  )}
+                </div>
+                <div className="combo-slots">
+                  <div
+                    className={`combo-pill ${
+                      game.activeChain.mainCard
+                        ? `filled dot-${game.activeChain.resolvedColor ?? 'red'}`
+                        : ''
+                    }`}
+                  >
+                    <small>메인</small>
+                    <strong>
+                      {game.activeChain.mainCard
+                        ? game.activeChain.mainCard.name
+                        : '카드 스캔'}
+                    </strong>
+                  </div>
+                  <div className="combo-boosts">
+                    {[0, 1].map((idx) => {
+                      const b = game.activeChain.boostCards[idx];
+                      return (
+                        <div key={idx} className={`combo-pill boost ${b ? 'filled' : ''}`}>
+                          <small>부스트 {idx + 1}</small>
+                          <strong>{b ? `+${b.boostValue}` : '—'}</strong>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+                <div className="tactical-hint-line">{getTacticalHint(game)}</div>
+              </section>
+
+              <section className="hud-block feed-block">
+                <div className="hud-label">최근 액션</div>
+                <div className="recent-feed">
+                  {game.logs.length === 0 ? (
+                    <span className="feed-empty">스캔 대기 중</span>
+                  ) : (
+                    game.logs.slice(0, 4).map((entry, idx) => (
+                      <div
+                        key={`${entry.id}-${idx}`}
+                        className={`feed-row feed-${entry.resolvedColor}`}
+                      >
+                        <span className="feed-name">
+                          {entry.isBoost ? '↳ ' : ''}
+                          {entry.cardName}
+                        </span>
+                        <strong className="feed-val">
+                          {entry.damageDealt > 0 ? `-${entry.damageDealt}` : '발동'}
+                        </strong>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </section>
+
+              <section className="hud-block">
+                <div className="hud-head-row">
+                  <span className="hud-label">
+                    <Heart size={14} /> 팀
+                  </span>
+                  <span className="intent-sub">
+                    체력 {game.teamHp}/{game.maxTeamHp} · 방어막 +{game.teamProtection}
+                  </span>
+                </div>
+                <div className="players-strip">
+                  {game.players.map((player) => (
+                    <div
+                      key={player.slot}
+                      className={`player-card player-${player.primaryColor}`}
+                    >
+                      <div className="player-identity">
+                        <span className="player-slot-badge">P{player.slot + 1}</span>
+                        <strong>{player.name.split(' ')[0]}</strong>
+                        <span
+                          className={`lantern-icon ${
+                            player.lanternCharged ? 'charged' : ''
+                          }`}
+                        >
+                          <Flame size={14} />
+                          {player.lanternCharged ? 'ON' : '랜턴'}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        className="btn-exhaust"
+                        disabled={
+                          game.phase !== 'maintenance' && game.phase !== 'coop_turn'
+                        }
+                        onClick={() =>
+                          setGameState((prev) => ({
+                            game: declareExhaustion(prev.game, player.slot),
+                            undoStack:
+                              prev.game.phase === 'coop_turn'
+                                ? pushUndoSnapshot(prev.undoStack, prev.game)
+                                : prev.undoStack,
+                          }))
+                        }
+                      >
+                        탈진
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                <div className="synergy-box">
+                  <div className="synergy-meter-card">
+                    <div className="synergy-meter-head">
+                      <span>
+                        <Sparkles size={12} /> 합동 궁극기
+                      </span>
+                      <strong>{game.synergyGauge}%</strong>
+                    </div>
+                    <div className="synergy-track">
+                      <div
+                        className="synergy-fill"
+                        style={{ width: `${Math.min(100, game.synergyGauge)}%` }}
+                      />
+                    </div>
+                  </div>
+                </div>
+              </section>
+            </div>
+          </div>
         </div>
-      </footer>
+      )}
 
       {/* DUAL / COLORLESS ATTRIBUTE PICKER MODAL */}
       {game.pendingColorChoice && (

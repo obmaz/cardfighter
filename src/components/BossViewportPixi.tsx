@@ -258,8 +258,8 @@ export function BossViewportPixi({
         if (bgTex) {
           arenaBgSprite = new Sprite(bgTex);
           arenaBgSprite.anchor.set(0.5);
-          arenaBgSprite.alpha = 0.38;
-          arenaBgSprite.tint = 0x94a3b8;
+          arenaBgSprite.alpha = 0.16;
+          arenaBgSprite.tint = 0xffffff;
           backdropLayer.addChild(arenaBgSprite);
         }
         if (vainTex) bossTextures.vainglory_core = vainTex;
@@ -926,7 +926,7 @@ export function BossViewportPixi({
       {/* Auto-fading Skill Cut-In Toast */}
       {visibleCutIn && (
         <div
-          key={visibleCutIn.id}
+          key={`cutin-${visibleCutIn.id}`}
           className={`skill-cutin-toast cutin-${visibleCutIn.resolvedColor}`}
         >
           <strong>{visibleCutIn.cardName}</strong>
@@ -939,7 +939,7 @@ export function BossViewportPixi({
 
       {/* Boss Reactive Bark */}
       {boss.lastBark && (
-        <div key={boss.lastBark} className="boss-bark-pill">
+        <div key={`bark-${boss.lastBark}`} className="boss-bark-pill">
           <span>“{boss.lastBark}”</span>
         </div>
       )}
@@ -994,13 +994,13 @@ export function BossViewportPixi({
 
       {/* 4-Dice Auto Roll Result Overlay */}
       {lastDiceRoll && (
-        <div key={lastDiceRoll.id} className="dice-tray-overlay">
+        <div key={`dice-${lastDiceRoll.id}`} className="dice-tray-overlay">
           <span className="dice-tray-title">주사위 +{lastDiceRoll.totalBonus}</span>
           <div className="dice-list">
-            {lastDiceRoll.results.map((die) => {
+            {lastDiceRoll.results.map((die, dieIdx) => {
               const info = DICE_COLOR_BADGE[die.face] ?? DICE_COLOR_BADGE.blank;
               return (
-                <span key={die.index} className={`die-chip ${info.cls}`}>
+                <span key={`${lastDiceRoll.id}-${dieIdx}`} className={`die-chip ${info.cls}`}>
                   {info.label}
                 </span>
               );

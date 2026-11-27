@@ -360,7 +360,10 @@ export function QrTestDrawer({
                       <button
                         type="button"
                         className="btn-sim-play"
-                        onClick={() => onSimulateScan(card.id)}
+                        onClick={() => {
+                          onSimulateScan(card.id);
+                          onClose();
+                        }}
                       >
                         <Play size={12} />
                         가상 스캔

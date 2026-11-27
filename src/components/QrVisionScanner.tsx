@@ -479,70 +479,75 @@ export function QrVisionScanner({
           onChange={handleFileUpload}
         />
 
-        {/* Compact floating controls top-right */}
+        {/* Simple scan dock */}
         <div className="scanner-overlay-controls">
           <button
             type="button"
-            className="mini-btn mini-btn-ai"
+            className="scan-primary-btn"
+            disabled={disabled || aiBusy}
+            onClick={() => fileInputRef.current?.click()}
+            title="카드 사진을 업로드해 AI가 읽도록 합니다"
+          >
+            <ImagePlus size={17} />
+            사진으로 스캔
+          </button>
+          <button
+            type="button"
+            className="scan-primary-btn scan-ai-btn"
             disabled={disabled || aiBusy || !cameraActive || Boolean(cameraError)}
             onClick={captureFrameForAi}
             title="카메라에 비춘 카드를 AI가 직접 읽고 공격"
           >
-            <Bot size={12} />
+            <Bot size={17} />
             {aiBusy ? 'AI 분석 중...' : 'AI 카드 인식'}
           </button>
-          <button
-            type="button"
-            className={`mini-btn ${autoVision ? 'mini-btn-auto-on' : ''}`}
-            onClick={handleToggleAutoVision}
-            title="카드가 프레임에 고정되면 자동으로 AI 인식 실행"
-          >
-            <ScanEye size={12} />
-            자동 인식
-          </button>
-          <button
-            type="button"
-            className="mini-btn"
-            disabled={disabled || aiBusy}
-            onClick={() => fileInputRef.current?.click()}
-            title="카드 사진 파일로 AI 테스트"
-          >
-            <ImagePlus size={12} />
-            사진
-          </button>
-          <button
-            type="button"
-            className="mini-btn"
-            onClick={() => setFacingMode((m) => (m === 'user' ? 'environment' : 'user'))}
-            title="전/후면 카메라 전환"
-          >
-            <RefreshCw size={12} />
-            {facingMode === 'user' ? '전면' : '후면'}
-          </button>
-          <button
-            type="button"
-            className="mini-btn"
-            onClick={() => setCameraActive((v) => !v)}
-          >
-            {cameraActive ? <CameraOff size={12} /> : <Camera size={12} />}
-          </button>
-          <button
-            type="button"
-            className="mini-btn mini-btn-accent"
-            onClick={onOpenTestDeck}
-          >
-            <Sparkles size={12} />
-            QR 테스트
-          </button>
+          <div className="scan-icon-row">
+            <button
+              type="button"
+              className={`scan-icon-btn ${autoVision ? 'is-on' : ''}`}
+              onClick={handleToggleAutoVision}
+              title="카드가 프레임에 고정되면 자동으로 AI 인식"
+              aria-label="자동 인식"
+            >
+              <ScanEye size={17} />
+            </button>
+            <button
+              type="button"
+              className="scan-icon-btn"
+              onClick={() => setFacingMode((m) => (m === 'user' ? 'environment' : 'user'))}
+              title="전/후면 카메라 전환"
+              aria-label="카메라 전환"
+            >
+              <RefreshCw size={17} />
+            </button>
+            <button
+              type="button"
+              className="scan-icon-btn"
+              onClick={() => setCameraActive((v) => !v)}
+              title={cameraActive ? '카메라 끄기' : '카메라 켜기'}
+              aria-label="카메라 켜기/끄기"
+            >
+              {cameraActive ? <CameraOff size={17} /> : <Camera size={17} />}
+            </button>
+            <button
+              type="button"
+              className="scan-icon-btn"
+              onClick={onOpenTestDeck}
+              title="QR 테스트 카드 덱 열기"
+              aria-label="QR 테스트"
+            >
+              <Sparkles size={17} />
+            </button>
+          </div>
         </div>
 
-        {/* Compact floating status bottom */}
+        {/* Compact floating status top */}
         <div className="scanner-overlay-status">
           <span className={lastScanStatus?.isError ? 'status-err' : 'status-ok'}>
             {lastScanStatus?.text ??
               (autoVision
                 ? `핸즈프리 자동 인식 활성 (${autoStatusText})`
-                : '카드를 카메라에 비추고 [AI 카드 인식] 또는 QR 스캔')}
+                : 'QR 코드가 인식되면 자동으로 공격합니다')}
           </span>
           {lastDecodeMs !== null && <span className="decode-ms">{lastDecodeMs}ms</span>}
         </div>
