@@ -155,17 +155,20 @@ body,
 }
 
 .ornate-gear-btn {
-  width: 48px;
-  height: 48px;
+  width: 52px;
+  height: 52px;
+  padding: 0;
   display: grid;
   place-items: center;
   border-radius: 10px;
-  background: linear-gradient(145deg, #1f5f6b, #0f2f38);
-  border: 2.5px solid #9db4be;
-  box-shadow:
-    inset 0 1px 2px rgba(255, 255, 255, 0.35),
-    0 5px 14px rgba(0, 0, 0, 0.72);
-  transition: transform 0.12s ease;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  transition: transform 0.12s ease, filter 0.15s ease;
+}
+
+.ornate-gear-btn:hover {
+  filter: brightness(1.08);
 }
 
 .ornate-gear-btn:active {
@@ -492,21 +495,46 @@ body,
   gap: 12px;
 }
 
+.fantasy-ui-img {
+  display: block;
+  object-fit: contain;
+  pointer-events: none;
+  user-select: none;
+  filter: drop-shadow(0 3px 8px rgba(0, 0, 0, 0.85));
+}
+
+.fantasy-emblem-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  filter: none;
+}
+
 .vision-lens-orb {
   position: relative;
-  width: 60px;
-  height: 60px;
+  width: 64px;
+  height: 64px;
   border-radius: 50%;
   padding: 0;
-  background: radial-gradient(circle at 35% 30%, #fef08a, #d97706 62%, #78350f);
-  border: 2.5px solid #fef3c7;
+  background: transparent;
+  border: none;
   display: grid;
   place-items: center;
   box-shadow:
-    0 0 20px rgba(251, 191, 36, 0.45),
+    0 0 22px rgba(251, 191, 36, 0.48),
     0 6px 16px rgba(0, 0, 0, 0.85);
   flex-shrink: 0;
-  transition: transform 0.14s ease;
+  transition: transform 0.14s ease, filter 0.15s ease;
+}
+
+.vision-lens-img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: contain;
+  pointer-events: none;
+  user-select: none;
+  border-radius: 50%;
 }
 
 .vision-lens-orb:active:not(:disabled) {
@@ -514,19 +542,8 @@ body,
 }
 
 .vision-lens-orb.is-analyzing {
-  border-color: #38bdf8;
-  box-shadow: 0 0 24px rgba(56, 189, 248, 0.85);
-}
-
-.lens-core {
-  width: 44px;
-  height: 44px;
-  border-radius: 50%;
-  background: radial-gradient(circle at 35% 35%, #1e293b, #090d16);
-  display: grid;
-  place-items: center;
-  color: #fde68a;
-  border: 1.5px solid rgba(254, 240, 138, 0.45);
+  box-shadow: 0 0 28px rgba(56, 189, 248, 0.92);
+  filter: drop-shadow(0 0 12px rgba(56, 189, 248, 0.85));
 }
 
 .flank-actions-right {
@@ -610,25 +627,16 @@ body,
 }
 
 .pillar-emblem-box {
-  width: 34px;
-  height: 30px;
+  width: 36px;
+  height: 36px;
+  padding: 0;
   display: grid;
   place-items: center;
   border-radius: 6px;
-  background: rgba(15, 23, 42, 0.92);
-  border: 1.5px solid #9ca3af;
-}
-
-.pillar-red .pillar-emblem-box {
-  background: linear-gradient(180deg, #7f1d1d, #450a0a);
-}
-
-.pillar-green .pillar-emblem-box {
-  background: linear-gradient(180deg, #065f46, #022c22);
-}
-
-.pillar-blue .pillar-emblem-box {
-  background: linear-gradient(180deg, #1e3a8a, #0f172a);
+  overflow: hidden;
+  background: transparent;
+  border: none;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.75);
 }
 
 .pillar-weak-badge {

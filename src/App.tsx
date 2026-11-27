@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Bot,
-  Camera,
   Flame,
   Gem,
   Heart,
@@ -590,7 +589,7 @@ export function App() {
           onClick={() => setHelpOpen(true)}
           title={`${game.boss.name} · 클릭하여 보스 기믹 보기`}
         >
-          <SkullEmblemSvg size={38} />
+          <SkullEmblemSvg size={42} />
           <div className="skull-hp-meta">
             <div className="skull-hp-numbers">
               <strong>{game.boss.hp}</strong>
@@ -636,7 +635,7 @@ export function App() {
             aria-label="메뉴 및 설정"
             title="메뉴 · 테스트 덱 · AI 설정"
           >
-            <GearEmblemSvg size={28} />
+            <GearEmblemSvg size={50} />
           </button>
         </div>
 
@@ -739,10 +738,12 @@ export function App() {
             title="카메라 / AI 카드 스캔"
             aria-label="카드 스캔 열기"
           >
-            <span className="lens-ring-outer" />
-            <span className="lens-core">
-              <Camera size={24} />
-            </span>
+            <img
+              src="./assets/ui/lens.png"
+              alt="카드 스캔"
+              className="vision-lens-img"
+              draggable={false}
+            />
           </button>
 
           <div className="flank-actions-right">
@@ -810,11 +811,11 @@ export function App() {
               >
                 {isWeak && <span className="pillar-weak-badge">약점+2</span>}
                 <div className="pillar-crest">
-                  <ShieldCrestSvg color={col} broken={broken} size={50} />
+                  <ShieldCrestSvg color={col} broken={broken} size={54} />
                 </div>
                 <strong className="pillar-value">{val}</strong>
                 <div className="pillar-emblem-box">
-                  <ElementEmblemSvg color={col} size={22} />
+                  <ElementEmblemSvg color={col} size={36} />
                 </div>
               </div>
             );
@@ -828,7 +829,7 @@ export function App() {
           onClick={() => setInfoOpen(true)}
           title={`라운드 ${game.round}/${game.maxRounds} · 전술 정보`}
         >
-          <HourglassSvg size={34} />
+          <HourglassSvg size={40} />
           <span className="corner-stat-pill">
             {game.round}
             <small>/{game.maxRounds}</small>
@@ -848,7 +849,7 @@ export function App() {
             </span>
           )}
           <span className="corner-stat-pill">{game.teamHp}</span>
-          <RubyHeartSvg size={38} />
+          <RubyHeartSvg size={42} />
         </button>
       </div>
 

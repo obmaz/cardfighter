@@ -101,24 +101,6 @@ async function tryLoadTexture(url: string): Promise<Texture | null> {
   }
 }
 
-function createRadialFeatherTexture(size = 256): Texture {
-  const canvas = document.createElement('canvas');
-  canvas.width = size;
-  canvas.height = size;
-  const ctx = canvas.getContext('2d');
-  if (ctx) {
-    const c = size / 2;
-    const grad = ctx.createRadialGradient(c, c, size * 0.18, c, c, size * 0.49);
-    grad.addColorStop(0, 'rgba(255,255,255,1)');
-    grad.addColorStop(0.55, 'rgba(255,255,255,0.92)');
-    grad.addColorStop(0.82, 'rgba(255,255,255,0.35)');
-    grad.addColorStop(1, 'rgba(255,255,255,0)');
-    ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, size, size);
-  }
-  return Texture.from(canvas);
-}
-
 export function BossViewportPixi({
   boss,
   effectQueue,
@@ -238,12 +220,6 @@ export function BossViewportPixi({
       const gearInner = new Graphics();
       const bossBody = new Graphics();
       const bossArtHolder = new Container();
-      const featherTex = createRadialFeatherTexture(256);
-      const bossMask = new Sprite(featherTex);
-      bossMask.anchor.set(0.5);
-      bossMask.width = 236;
-      bossMask.height = 236;
-      bossArtHolder.mask = bossMask;
       const bossFlashOverlay = new Graphics();
       bossFlashOverlay.circle(0, 0, 108).fill({ color: 0xffffff, alpha: 0.68 });
       bossFlashOverlay.visible = false;
@@ -257,7 +233,6 @@ export function BossViewportPixi({
         gearOuter,
         gearInner,
         bossBody,
-        bossMask,
         bossArtHolder,
         bossFlashOverlay,
         barrierGfx,
@@ -273,9 +248,9 @@ export function BossViewportPixi({
 
       void Promise.all([
         tryLoadTexture('./assets/arena_bg.jpg'),
-        tryLoadTexture('./assets/vainglory_core.jpg'),
-        tryLoadTexture('./assets/kalos_prime.jpg'),
-        tryLoadTexture('./assets/chronos_wyrm.jpg'),
+        tryLoadTexture('./assets/vainglory_core.png'),
+        tryLoadTexture('./assets/kalos_prime.png'),
+        tryLoadTexture('./assets/chronos_wyrm.png'),
       ]).then(([bgTex, vainTex, kalosTex, chronoTex]) => {
         if (destroyed) return;
         if (bgTex) {
@@ -464,13 +439,13 @@ export function BossViewportPixi({
             : 0xffffff;
         }
 
-        // Sync boss portrait sprite with generous size & soft radial blend
+        // Sync transparent cutout boss sprite at commanding scale
         const tex = bossTextures[b.id];
         if (tex && activeSpriteBossId !== b.id) {
           bossArtHolder.removeChildren().forEach((c) => c.destroy());
           const spr = new Sprite(tex);
           spr.anchor.set(0.5);
-          const scale = 236 / Math.min(tex.width || 236, tex.height || 236);
+          const scale = 268 / Math.max(tex.width || 268, tex.height || 268);
           spr.scale.set(scale);
           bossArtHolder.addChild(spr);
           activeBossSprite = spr;
@@ -483,6 +458,7 @@ export function BossViewportPixi({
 
         bossLayer.scale.set(bossScale);
 
+        const hasSprite = Boolean(activeBossSprite);
         if (activeBossSprite) {
           activeBossSprite.tint = isPhase2
             ? b.id === 'kalos_prime'
@@ -491,9 +467,10 @@ export function BossViewportPixi({
                 ? 0xbae6fd
                 : 0xffd1c1
             : 0xffffff;
+          activeBossSprite.alpha =
+            flashTimer > 0 ? 0.65 + 0.35 * Math.abs(Math.sin(flashTimer * 50)) : 1;
         }
-        const hasSprite = Boolean(activeBossSprite);
-        bossFlashOverlay.visible = flashTimer > 0;
+        bossFlashOverlay.visible = flashTimer > 0 && !hasSprite;
 
         // Arena radial floor glow
         bgLayer.clear();
