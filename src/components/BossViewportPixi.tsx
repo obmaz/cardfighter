@@ -249,10 +249,10 @@ export function BossViewportPixi({
       let activeBossSprite: Sprite | null = null;
 
       void Promise.all([
-        tryLoadTexture('/assets/arena_bg.jpg'),
-        tryLoadTexture('/assets/vainglory_core.jpg'),
-        tryLoadTexture('/assets/kalos_prime.jpg'),
-        tryLoadTexture('/assets/chronos_wyrm.jpg'),
+        tryLoadTexture('./assets/arena_bg.jpg'),
+        tryLoadTexture('./assets/vainglory_core.jpg'),
+        tryLoadTexture('./assets/kalos_prime.jpg'),
+        tryLoadTexture('./assets/chronos_wyrm.jpg'),
       ]).then(([bgTex, vainTex, kalosTex, chronoTex]) => {
         if (destroyed) return;
         if (bgTex) {

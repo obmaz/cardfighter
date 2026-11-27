@@ -84,24 +84,24 @@ function getCardArtUrl(color: CardColor): string {
     case 'red':
     case 'dual_rg':
     case 'dual_rb':
-      return '/assets/card_red.jpg';
+      return './assets/card_red.jpg';
     case 'green':
     case 'dual_gb':
-      return '/assets/card_green.jpg';
+      return './assets/card_green.jpg';
     case 'blue':
-      return '/assets/card_blue.jpg';
+      return './assets/card_blue.jpg';
     case 'lantern':
     case 'colorless':
-      return '/assets/card_lantern.jpg';
+      return './assets/card_lantern.jpg';
   }
 }
 
 function getSeekerPortraitUrl(seekerId: SeekerId): string {
-  return `/assets/seeker_${seekerId}.jpg`;
+  return `./assets/seeker_${seekerId}.jpg`;
 }
 
 function getBossPortraitUrl(bossId: BossId): string {
-  return `/assets/${bossId}.jpg`;
+  return `./assets/${bossId}.jpg`;
 }
 
 const PHASE_LABEL: Record<RoundPhase, string> = {
